@@ -40,6 +40,33 @@ const getMovingAverage = (data, windowSize = 7) => {
   });
 };
 
+const calculateTDEE = (weights, history, days = 21) => {
+  const sortedWeights = [...weights].sort((a, b) => new Date(a.date) - new Date(b.date));
+  if (sortedWeights.length < 5) return null;
+  const now = new Date();
+  const startLimit = new Date();
+  startLimit.setDate(now.getDate() - days);
+  const relevantWeights = sortedWeights.filter(w => new Date(w.date) >= startLimit);
+  if (relevantWeights.length < 3) return null;
+  const firstW = relevantWeights[0];
+  const lastW = relevantWeights[relevantWeights.length - 1];
+  const weightDiff = lastW.val - firstW.val;
+  const daySpan = (new Date(lastW.date) - new Date(firstW.date)) / 86400000;
+  if (daySpan <= 0) return null;
+  let totalKcal = 0;
+  let loggedDays = 0;
+  Object.keys(history).forEach(d => {
+    if (new Date(d) >= new Date(firstW.date) && new Date(d) <= new Date(lastW.date)) {
+      const dailyKcal = sum(history[d], "kcal");
+      if (dailyKcal > 800) { totalKcal += dailyKcal; loggedDays++; }
+    }
+  });
+  if (loggedDays < daySpan * 0.7) return null;
+  const avgIntake = totalKcal / loggedDays;
+  const energyFromWeight = (weightDiff * 7700) / daySpan;
+  return Math.round(avgIntake - energyFromWeight);
+};
+
 // ─── ICONS ──────────────────────────────────────────────────────────────────
 const Icon = {
   Today: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>,
@@ -68,19 +95,18 @@ function StatBar({ label, value, max, unit, accent }) {
 }
 
 // ─── VIEW: TODAY ─────────────────────────────────────────────────────────────
-function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, activeDate, removeWeight }) {
+function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, activeDate, removeWeight, saveFav }) {
   const [activeType, setActiveType] = useState(null);
   const [form, setForm] = useState(EMPTY_ENTRY);
   const [weightInput, setWeightInput] = useState("");
-
   const weightEntry = weights.find(w => w.date === activeDate);
   const currentWeight = weightEntry?.val || "--";
 
   const updateForm = (k, v) => {
     setForm(f => {
       const next = { ...f, [k]: v };
-      if (!["desc", "kcal"].includes(k)) {
-        next.kcal = String(Math.round(num(next.prot) * 4 + num(next.carbs) * 4 + num(next.fat) * 9 + num(next.fiber) * 2));
+      if (k !== "desc" && k !== "kcal") {
+        next.kcal = String(calcKcalFromMacros(next));
       }
       return next;
     });
@@ -95,11 +121,7 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
           <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-1">Gewicht am {fmtDate(activeDate)}</p>
           <div className="flex items-center gap-2">
             <div className="text-3xl font-black text-stone-900">{currentWeight} <span className="text-sm font-medium text-stone-300 uppercase">kg</span></div>
-            {weightEntry && (
-              <button onClick={() => removeWeight(activeDate)} className="text-stone-200 hover:text-red-400 p-1 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-              </button>
-            )}
+            {weightEntry && <button onClick={() => removeWeight(activeDate)} className="text-stone-200 hover:text-red-400 p-1">✕</button>}
           </div>
         </div>
         <div className="flex gap-2">
@@ -123,7 +145,6 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
           const typeEntries = entries.filter(e => e.type === type);
           const typeKcal = sum(typeEntries, "kcal");
           const isOpen = activeType === type;
-
           return (
             <div key={type} className="bg-white rounded-3xl border border-stone-100 shadow-sm overflow-hidden transition-all">
               <button onClick={() => setActiveType(isOpen ? null : type)} className="w-full px-6 py-5 flex justify-between items-center active:bg-stone-50">
@@ -131,36 +152,30 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
                   <div className={`w-2 h-2 rounded-full ${typeKcal > 0 ? 'bg-green-500' : 'bg-stone-200'}`} />
                   <span className="text-sm font-black text-stone-800">{type}</span>
                 </div>
-                <div className="text-right">
-                   <span className="text-xs font-black text-stone-900">{typeKcal}</span>
-                   <span className="text-[10px] font-bold text-stone-300 ml-1 uppercase">kcal</span>
-                </div>
+                <div className="text-right"><span className="text-xs font-black text-stone-900">{typeKcal}</span><span className="text-[10px] font-bold text-stone-300 ml-1 uppercase">kcal</span></div>
               </button>
-
               {isOpen && (
-                <div className="px-6 pb-6 space-y-4 animate-in slide-in-from-top-2 duration-200">
-                  <div className="h-px bg-stone-50 w-full mb-4" />
+                <div className="px-6 pb-6 space-y-4">
                   {typeEntries.map((item, i) => (
                     <div key={i} className="flex justify-between items-center">
-                      <div className="min-w-0 flex-1 mr-2">
-                        <div className="text-[13px] font-bold text-stone-700 truncate">{item.desc}</div>
-                        <div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">
-                          {item.kcal} kcal · {item.prot}P · {item.carbs}C · {item.fat}F
-                        </div>
-                      </div>
-                      <button onClick={() => removeEntry(entries.indexOf(item))} className="p-2 text-stone-200 hover:text-red-400 transition-colors text-xs">✕</button>
+                      <div className="min-w-0 flex-1 mr-2"><div className="text-[13px] font-bold text-stone-700 truncate">{item.desc}</div><div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">{item.kcal} kcal · {item.prot}P · {item.carbs}C · {item.fat}F · {item.fiber}B</div></div>
+                      <button onClick={() => removeEntry(entries.indexOf(item))} className="text-stone-200 hover:text-red-400 text-xs">✕</button>
                     </div>
                   ))}
-                  
                   <div className="space-y-3 pt-2">
                     <input value={form.desc} onChange={e => updateForm("desc", e.target.value)} placeholder="Was hast du gegessen?" className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-[13px] outline-none font-medium" />
-                    <div className="grid grid-cols-4 gap-2">
-                      <input value={form.kcal} onChange={e => updateForm("kcal", e.target.value)} placeholder="kcal" type="number" className="bg-stone-50 border-none rounded-xl py-2 text-center text-xs outline-none font-bold" />
-                      <input value={form.prot} onChange={e => updateForm("prot", e.target.value)} placeholder="P" type="number" className="bg-stone-50 border-none rounded-xl py-2 text-center text-xs outline-none font-bold" />
-                      <input value={form.carbs} onChange={e => updateForm("carbs", e.target.value)} placeholder="C" type="number" className="bg-stone-50 border-none rounded-xl py-2 text-center text-xs outline-none font-bold" />
-                      <input value={form.fat} onChange={e => updateForm("fat", e.target.value)} placeholder="F" type="number" className="bg-stone-50 border-none rounded-xl py-2 text-center text-xs outline-none font-bold" />
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {["kcal", "prot", "carbs", "fat", "fiber"].map(k => (
+                        <div key={k} className="flex flex-col gap-1">
+                          <span className="text-[7px] font-black uppercase text-stone-300 text-center">{k}</span>
+                          <input value={form[k]} onChange={e => updateForm(k, e.target.value)} placeholder="0" type="number" className="bg-stone-50 border-none rounded-xl py-2 text-center text-xs outline-none font-bold" />
+                        </div>
+                      ))}
                     </div>
-                    <button onClick={() => { if(form.desc) { addEntry({...form, type}); setForm(EMPTY_ENTRY); }}} className="w-full bg-stone-900 text-white font-black py-3 rounded-2xl text-xs uppercase tracking-widest active:scale-[0.98] transition-transform">Speichern</button>
+                    <div className="flex gap-2">
+                      <button onClick={() => { if(form.desc) { addEntry({...form, type}); setForm(EMPTY_ENTRY); }}} className="flex-1 bg-stone-900 text-white font-black py-3 rounded-2xl text-xs uppercase tracking-widest active:scale-95 transition-all">Log</button>
+                      <button onClick={() => { if(form.desc) { saveFav(form); }}} className="bg-stone-100 text-stone-400 px-4 rounded-2xl active:scale-95">★</button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -172,84 +187,34 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
   );
 }
 
-// ─── VIEW: WEIGHT (DETAILS) ──────────────────────────────────────────────────
-function WeightView({ weights, removeWeight }) {
-  const sorted = [...weights].sort((a, b) => new Date(a.date) - new Date(b.date));
-  const dataWithAvg = getMovingAverage(sorted, 7);
-  const minWeight = sorted.length > 0 ? Math.min(...sorted.map(w => w.val)) : 0;
-  const maxWeight = sorted.length > 0 ? Math.max(...sorted.map(w => w.val)) : 100;
-
+// ─── VIEW: HISTORY ──────────────────────────────────────────────────────────
+function HistoryView({ historyData, todayEntries, goals, weights }) {
+  const allHistory = { ...historyData, [todayKey()]: todayEntries };
+  const tdee = calculateTDEE(weights, allHistory);
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <div className="flex justify-between items-center mb-6">
-          <p className="text-[10px] font-black uppercase tracking-widest text-stone-300">Gewichtsverlauf (kg)</p>
-          <div className="flex items-center gap-3">
-             <div className="flex items-center gap-1.5"><div className="w-2 h-0.5 bg-stone-200 rounded-full" /><span className="text-[8px] font-bold text-stone-400 uppercase">Log</span></div>
-             <div className="flex items-center gap-1.5"><div className="w-2 h-1 bg-stone-900 rounded-full" /><span className="text-[8px] font-bold text-stone-400 uppercase">Trend</span></div>
+      {tdee && (
+        <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm flex justify-between items-center bg-gradient-to-br from-white to-stone-50">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600 mb-1">Dynamischer Verbrauch (TDEE)</p>
+            <div className="text-3xl font-black text-stone-900">{tdee} <span className="text-sm font-medium text-stone-300 uppercase">kcal</span></div>
+            <p className="text-[9px] font-bold text-stone-400 mt-2 uppercase tracking-tighter">Basierend auf der letzten 21-Tage-Periode</p>
           </div>
         </div>
-
-        {dataWithAvg.length > 1 ? (
-          <div className="h-72 w-full -ml-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={dataWithAvg} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <XAxis dataKey="date" hide />
-                <YAxis orientation="right" tick={{fontSize: 10, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} domain={[Math.floor(minWeight - 1), Math.ceil(maxWeight + 1)]} tickFormatter={(v) => `${v}kg`} />
-                <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.05)' }} labelFormatter={v => fmtDate(v)} />
-                <Line type="monotone" dataKey="val" stroke="#f5f5f4" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: '#f5f5f4' }} />
-                <Line type="monotone" dataKey="avg" stroke="#1c1c1e" strokeWidth={5} dot={false} strokeLinecap="round" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        ) : <div className="h-48 flex items-center justify-center text-stone-300 text-xs italic bg-stone-50 rounded-2xl border-2 border-dashed border-stone-100">Mind. 2 Logs nötig...</div>}
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 ml-4">Letzte Einträge</p>
-        {[...weights].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0, 5).map((w, i) => (
-          <div key={i} className="bg-white rounded-2xl px-5 py-4 border border-stone-50 flex justify-between items-center">
-            <div>
-              <div className="text-sm font-black text-stone-800">{w.val} kg</div>
-              <div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">{fmtDate(w.date)}</div>
-            </div>
-            <button onClick={() => removeWeight(w.date)} className="text-stone-200 hover:text-red-400 p-2">✕</button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── VIEW: ANALYSE ───────────────────────────────────────────────────────────
-function AnalyseView({ historyData, todayEntries, goals }) {
-  const allFood = { ...historyData, [todayKey()]: todayEntries };
-  const stats = (() => {
-    const groups = {};
-    Object.keys(allFood).forEach(dateStr => {
-      const d = new Date(dateStr + "T12:00:00");
-      let key = d.toLocaleDateString("de-DE", { month: "short", year: "2-digit" });
-      if (!groups[key]) groups[key] = { label: key, kcal: [], days: 0, dateObj: d };
-      if (allFood[dateStr].length > 0) { groups[key].kcal.push(sum(allFood[dateStr], "kcal")); groups[key].days++; }
-    });
-    return Object.values(groups).map(g => ({ ...g, avgKcal: g.days > 0 ? Math.round(g.kcal.reduce((a, b) => a + b, 0) / g.days) : 0 })).sort((a, b) => b.dateObj - a.dateObj);
-  })();
-
-  return (
-    <div className="space-y-6">
+      )}
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
         <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Energie Trend (kcal)</p>
         <div className="h-48 w-full -ml-4">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={[...stats].slice(0, 6).reverse()} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <BarChart data={Object.keys(allHistory).slice(-7).map(d => ({ label: fmtDate(d), val: sum(allHistory[d], "kcal") }))}>
               <XAxis dataKey="label" tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} />
-              <YAxis orientation="right" tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} domain={[0, 'dataMax + 500']} />
-              <ReferenceLine y={goals.kcal} stroke="#fca5a5" strokeDasharray="6 6" />
-              <Bar dataKey="avgKcal" radius={[8, 8, 8, 8]} barSize={24}>
-                {[...stats].slice(0, 6).reverse().map((entry, index) => (
-                  <Cell key={index} fill={entry.avgKcal > goals.kcal ? "#f87171" : "#1c1c1e"} />
+              <YAxis hide domain={[0, 'dataMax + 500']} />
+              <Bar dataKey="val" radius={[6, 6, 6, 6]} barSize={32}>
+                {Object.keys(allHistory).slice(-7).map((entry, index) => (
+                  <Cell key={index} fill={sum(allHistory[entry], "kcal") > goals.kcal ? "#fca5a5" : "#1c1c1e"} />
                 ))}
               </Bar>
+              <ReferenceLine y={goals.kcal} stroke="#fca5a5" strokeDasharray="4 4" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -264,18 +229,18 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(todayKey());
   const [entries, setEntries] = useState([]);
   const [goals, setGoals] = useState(DEFAULT_GOALS);
-  const [favs, setFavs] = useState([]);
   const [weights, setWeights] = useState([]);
+  const [favs, setFavs] = useState([]);
   const [histData, setHistData] = useState({});
   const [ready, setReady] = useState(false);
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
     async function init() {
-      const [g, f, w, hi] = await Promise.all([DB.get("goals"), DB.get("favs"), DB.get("weights"), DB.get("hist-index")]);
+      const [g, w, f, hi] = await Promise.all([DB.get("goals"), DB.get("weights"), DB.get("favs"), DB.get("hist-index")]);
       setGoals({ ...DEFAULT_GOALS, ...g });
-      setFavs(f || []);
       setWeights(w || []);
+      setFavs(f || []);
       if (hi) {
         const hd = {};
         for (const k of hi) { const d = await DB.get(`day-${k}`); if (d) hd[k] = d; }
@@ -295,41 +260,37 @@ export default function App() {
   }, [selectedDate, ready]);
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2000); };
-
   const addEntry = async (item) => {
     const updated = [...entries, item]; 
     setEntries(updated);
     await DB.set(`day-${selectedDate}`, updated);
     const hi = await DB.get("hist-index") || [];
     if (!hi.includes(selectedDate)) await DB.set("hist-index", [...hi, selectedDate]);
-    flash(`Log gespeichert ✓`);
+    flash(`Log gespeichert`);
   };
-
   const removeEntry = async (index) => {
     const updated = entries.filter((_, i) => i !== index);
     setEntries(updated);
     await DB.set(`day-${selectedDate}`, updated);
   };
-
+  const saveFav = async (f) => {
+    const updated = [...favs, f];
+    setFavs(updated);
+    await DB.set("favs", updated);
+    flash("Favorit gespeichert");
+  };
   const addWeight = async (v) => {
     const filtered = weights.filter(w => w.date !== selectedDate);
-    const updated = [...filtered, { date: selectedDate, val: v }];
+    const updated = [...filtered, { date: selectedDate, val: v }].sort((a,b)=>new Date(a.date)-new Date(b.date));
     setWeights(updated);
     await DB.set("weights", updated);
     flash(`Gewicht: ${v}kg`);
   };
-
   const removeWeight = async (d) => {
     const updated = weights.filter(w => w.date !== d);
     setWeights(updated);
     await DB.set("weights", updated);
-    flash("Gewicht gelöscht");
-  };
-
-  const updateGoals = (newGoals) => {
-    const withKcal = { ...newGoals, kcal: calcKcalFromMacros(newGoals) };
-    setGoals(withKcal);
-    DB.set("goals", withKcal);
+    flash("Gelöscht");
   };
 
   const TABS = [
@@ -343,47 +304,50 @@ export default function App() {
   if (!ready) return null;
 
   return (
-    <div className="min-h-screen bg-[#fafaf8] text-stone-900 pb-32 font-sans antialiased selection:bg-stone-200">
+    <div className="min-h-screen bg-[#fafaf8] text-stone-900 pb-32 font-sans antialiased">
       <header className="px-8 pt-16 pb-8 flex justify-between items-end max-w-lg mx-auto">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-stone-300 mb-1">Performance Track</p>
-          <h1 className="text-4xl font-black tracking-tighter text-stone-900">{TABS.find(t=>t.id===tab).label}</h1>
-        </div>
-        <div className="flex flex-col items-end">
-          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-stone-100 border-none rounded-xl px-3 py-2 text-[10px] font-black text-stone-600 outline-none" />
-          {selectedDate !== todayKey() && <button onClick={() => setSelectedDate(todayKey())} className="text-[9px] font-black text-amber-600 mt-2 uppercase">Heute</button>}
-        </div>
+        <div><p className="text-[10px] font-black uppercase tracking-[0.4em] text-stone-300 mb-1">Performance Track</p>
+        <h1 className="text-4xl font-black tracking-tighter text-stone-900">{TABS.find(t=>t.id===tab).label}</h1></div>
+        <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-stone-100 border-none rounded-xl px-3 py-2 text-[10px] font-black text-stone-600 outline-none" />
       </header>
 
       <main className="px-6 max-w-lg mx-auto">
-        {tab === "today" && <TodayView entries={entries} goals={goals} weights={weights} addEntry={addEntry} removeEntry={removeEntry} addWeight={addWeight} activeDate={selectedDate} removeWeight={removeWeight} />}
-        {tab === "history" && <AnalyseView historyData={histData} todayEntries={entries} goals={goals} />}
-        {tab === "weight" && <WeightView weights={weights} removeWeight={removeWeight} />}
+        {tab === "today" && <TodayView entries={entries} goals={goals} weights={weights} addEntry={addEntry} removeEntry={removeEntry} addWeight={addWeight} activeDate={selectedDate} removeWeight={removeWeight} saveFav={saveFav} />}
+        {tab === "history" && <HistoryView historyData={histData} todayEntries={entries} goals={goals} weights={weights} />}
+        {tab === "weight" && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-3xl p-6 border border-stone-100 h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={getMovingAverage(weights, 7)}>
+                  <YAxis hide domain={['dataMin - 1', 'dataMax + 1']} />
+                  <Line type="monotone" dataKey="avg" stroke="#1c1c1e" strokeWidth={5} dot={false} strokeLinecap="round" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
         {tab === "favs" && (
           <div className="space-y-3">
             {favs.map((f, i) => (
               <div key={i} className="bg-white rounded-3xl p-5 border border-stone-50 flex justify-between items-center">
                 <div className="min-w-0 flex-1 mr-4">
                   <div className="text-sm font-black truncate">{f.desc}</div>
-                  <div className="text-[10px] font-bold text-stone-300 uppercase">{f.kcal} kcal | {f.prot}P</div>
+                  <div className="text-[10px] font-bold text-stone-300 uppercase">{f.kcal} kcal | {f.prot}P | {f.fiber}B</div>
                 </div>
                 <div className="flex gap-1">
                   {MEAL_TYPES.map(type => <button key={type} onClick={() => addEntry({...f, type})} className="bg-stone-50 text-[8px] font-black p-2 rounded-lg hover:bg-stone-100">{type[0]}</button>)}
+                  <button onClick={() => { const u = favs.filter((_, idx)=>idx!==i); setFavs(u); DB.set("favs", u); }} className="text-stone-200 ml-2">✕</button>
                 </div>
               </div>
             ))}
           </div>
         )}
         {tab === "goals" && (
-          <div className="bg-white rounded-3xl p-8 border border-stone-50 shadow-sm space-y-6">
-            <div className="bg-stone-900 rounded-2xl p-6 text-white mb-4">
-              <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-1">Berechnetes Ziel</p>
-              <div className="text-3xl font-black">{goals.kcal} <span className="text-xs font-medium text-stone-500 uppercase tracking-normal">kcal / Tag</span></div>
-            </div>
+          <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-sm space-y-6">
             {["prot", "carbs", "fat", "fiber"].map(k => (
               <div key={k}>
-                <label className="text-[10px] font-black uppercase text-stone-400 mb-2 block">{k === "prot" ? "Protein (g)" : k === "carbs" ? "Kohlenhydrate (g)" : k === "fat" ? "Fette (g)" : "Ballaststoffe (g)"}</label>
-                <input value={goals[k]} type="number" className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-sm font-bold outline-none ring-1 ring-stone-100" onChange={e => updateGoals({...goals, [k]: e.target.value})} />
+                <label className="text-[10px] font-black uppercase text-stone-400 mb-2 block">{k}</label>
+                <input value={goals[k]} type="number" className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-sm font-bold outline-none" onChange={e => { const g = {...goals, [k]: e.target.value}; g.kcal = calcKcalFromMacros(g); setGoals(g); DB.set("goals", g); }} />
               </div>
             ))}
           </div>
@@ -393,7 +357,7 @@ export default function App() {
       <nav className="fixed bottom-0 left-0 right-0 bg-white/70 backdrop-blur-3xl border-t border-stone-100 px-8 pt-4 pb-10 z-50">
         <div className="flex justify-between items-center max-w-sm mx-auto">
           {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center gap-1.5 transition-all ${tab === t.id ? "text-stone-900" : "text-stone-300"}`}>
+            <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center gap-1.5 ${tab === t.id ? "text-stone-900" : "text-stone-300"}`}>
               <div className={`p-2.5 rounded-2xl ${tab === t.id ? "bg-stone-900 text-white shadow-lg" : ""}`}>{t.icon}</div>
               <span className={`text-[8px] font-black uppercase tracking-widest ${tab === t.id ? "opacity-100" : "opacity-0"}`}>{t.label}</span>
             </button>
@@ -401,7 +365,7 @@ export default function App() {
         </div>
       </nav>
 
-      {toast && <div className="fixed bottom-32 left-1/2 -translate-x-1/2 bg-stone-900 text-white text-[10px] font-black uppercase tracking-[0.2em] px-8 py-3 rounded-full z-50 shadow-2xl animate-in fade-in zoom-in-95">{toast}</div>}
+      {toast && <div className="fixed bottom-32 left-1/2 -translate-x-1/2 bg-stone-900 text-white text-[10px] font-black uppercase px-8 py-3 rounded-full z-50 shadow-2xl animate-in fade-in zoom-in-95">{toast}</div>}
     </div>
   );
 }
