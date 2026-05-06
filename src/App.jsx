@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { BarChart, Bar, XAxis, ReferenceLine, ResponsiveContainer, Cell } from "recharts";
 
-// ─── STORAGE (Safari-kompatibel via localStorage) ───────────────────────────
+// ─── STORAGE & LOGIC ────────────────────────────────────────────────────────
 const DB = {
   async get(key) {
     try {
@@ -22,8 +22,11 @@ const fmtDate = (k) =>
 
 const EMPTY_ENTRY   = { desc: "", kcal: "", prot: "", carbs: "", fat: "", fiber: "" };
 const DEFAULT_GOALS = { kcal: 2000, prot: 150, carbs: 250, fat: 70, fiber: 30 };
-const sum  = (arr, key) => arr.reduce((s, i) => s + (i[key] || 0), 0);
-const int  = (v) => parseInt(v) || 0;
+
+// Berechnet Summen und rundet auf 1 Nachkommastelle
+const sum  = (arr, key) => Math.round(arr.reduce((s, i) => s + (Number(i[key]) || 0), 0) * 10) / 10;
+// Verarbeitet Komma und Punkt für iPhone-Tastaturen
+const num  = (v) => v === "" ? 0 : parseFloat(String(v).replace(",", ".")) || 0;
 
 // ─── MACRO FORM HOOK ─────────────────────────────────────────────────────────
 function useMacroForm() {
@@ -31,8 +34,9 @@ function useMacroForm() {
   const [kcalAuto, setKcalAuto] = useState(true);
 
   const calcKcal = (f) => {
-    const p = int(f.prot), c = int(f.carbs), fa = int(f.fat);
-    const total = p * 4 + c * 4 + fa * 9;
+    // EU-Standard: Ballaststoffe zählen mit 2 kcal/g
+    const p = num(f.prot), c = num(f.carbs), fa = num(f.fat), fi = num(f.fiber);
+    const total = Math.round(p * 4 + c * 4 + fa * 9 + fi * 2);
     return total > 0 ? String(total) : "";
   };
 
@@ -76,7 +80,7 @@ function StatBar({ label, value, max, unit, accent }) {
 function KcalInp({ value, onChange, isAuto }) {
   return (
     <div className="relative">
-      <input value={value} onChange={onChange} placeholder="kcal" type="number"
+      <input value={value} onChange={onChange} placeholder="kcal" type="number" step="any"
         className="w-full border border-stone-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-stone-500 bg-stone-50 placeholder-stone-300 transition-colors pr-12" />
       {isAuto && value !== "" && (
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-semibold text-stone-400 uppercase tracking-wider pointer-events-none">auto</span>
@@ -87,7 +91,7 @@ function KcalInp({ value, onChange, isAuto }) {
 
 function Inp({ value, onChange, placeholder, type = "text", onKeyDown }) {
   return (
-    <input value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder} type={type}
+    <input value={value} onChange={onChange} onKeyDown={onKeyDown} placeholder={placeholder} type={type} step="any"
       className="w-full border border-stone-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-stone-500 bg-stone-50 placeholder-stone-300 transition-colors" />
   );
 }
@@ -123,7 +127,7 @@ function TodayView({ entries, goals, addEntry, removeEntry, onStar }) {
   const { form, kcalAuto, setMacro, setKcal, setDesc, reset } = useMacroForm();
   const submit = () => {
     if (!form.desc.trim()) return;
-    addEntry({ desc: form.desc.trim(), kcal: int(form.kcal), prot: int(form.prot), carbs: int(form.carbs), fat: int(form.fat), fiber: int(form.fiber) });
+    addEntry({ desc: form.desc.trim(), kcal: num(form.kcal), prot: num(form.prot), carbs: num(form.carbs), fat: num(form.fat), fiber: num(form.fiber) });
     reset();
   };
   const t = { kcal: sum(entries,"kcal"), prot: sum(entries,"prot"), carbs: sum(entries,"carbs"), fat: sum(entries,"fat"), fiber: sum(entries,"fiber") };
@@ -148,7 +152,7 @@ function TodayView({ entries, goals, addEntry, removeEntry, onStar }) {
           <Inp value={form.carbs} onChange={setMacro("carbs")} placeholder="Kohlenhydrate (g)" type="number" />
           <Inp value={form.fat}   onChange={setMacro("fat")}   placeholder="Fette (g)"         type="number" />
         </div>
-        <Inp value={form.fiber} onChange={setMacro("fiber")} placeholder="Ballaststoffe (g) — optional" type="number" />
+        <Inp value={form.fiber} onChange={setMacro("fiber")} placeholder="Ballaststoffe (g)" type="number" />
         <Btn onClick={submit}>Hinzufügen</Btn>
       </div>
       {entries.length > 0 ? (
@@ -160,7 +164,7 @@ function TodayView({ entries, goals, addEntry, removeEntry, onStar }) {
                 <div className="text-sm font-semibold text-stone-800 truncate">{item.desc}</div>
                 <MacroChips entry={item} />
               </div>
-              <div className="flex gap-1 ml-3 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+              <div className="flex gap-1 ml-3 shrink-0">
                 <button onClick={() => onStar(item)} className="text-stone-300 hover:text-amber-400 px-2 py-1 text-base transition-colors">★</button>
                 <button onClick={() => removeEntry(i)} className="text-stone-300 hover:text-red-400 px-2 py-1 text-sm transition-colors">✕</button>
               </div>
@@ -270,7 +274,7 @@ function FavsView({ favs, removeFav, addToToday, addFav }) {
   const { form, kcalAuto, setMacro, setKcal, setDesc, reset } = useMacroForm();
   const save = () => {
     if (!form.desc.trim()) return;
-    addFav({ desc: form.desc.trim(), kcal: int(form.kcal), prot: int(form.prot), carbs: int(form.carbs), fat: int(form.fat), fiber: int(form.fiber) });
+    addFav({ desc: form.desc.trim(), kcal: num(form.kcal), prot: num(form.prot), carbs: num(form.carbs), fat: num(form.fat), fiber: num(form.fiber) });
     reset();
   };
   return (
@@ -309,7 +313,7 @@ function FavsView({ favs, removeFav, addToToday, addFav }) {
 function GoalsView({ goals, saveGoals }) {
   const [form, setForm] = useState(goals);
   useEffect(() => setForm(goals), [goals]);
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: int(e.target.value) }));
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: num(e.target.value) }));
   const fields = [
     { key: "kcal",  label: "Kalorien (kcal)" },
     { key: "prot",  label: "Protein (g)" },
@@ -348,15 +352,25 @@ export default function App() {
       const [e, g, f, hi] = await Promise.all([
         DB.get(`day-${today}`), DB.get("goals"), DB.get("favs"), DB.get("hist-index"),
       ]);
-      if (e) setEntries(e);
-      if (g) setGoals({ ...DEFAULT_GOALS, ...g });
-      if (f) setFavs(f);
-      if (hi) {
-        setHistIndex(hi);
-        const hd = {};
-        for (const k of hi) { if (k !== today) { const d = await DB.get(`day-${k}`); if (d) hd[k] = d; } }
-        setHistData(hd);
+      
+      const goalsData = { ...DEFAULT_GOALS, ...g };
+      const indexData = hi || [];
+      
+      // Performance: Lade nur die letzten 14 Tage für die History Ansicht
+      const recentKeys = indexData.slice(-14);
+      const hd = {};
+      for (const k of recentKeys) {
+        if (k !== today) {
+          const d = await DB.get(`day-${k}`);
+          if (d) hd[k] = d;
+        }
       }
+
+      setEntries(e || []);
+      setGoals(goalsData);
+      setFavs(f || []);
+      setHistIndex(indexData);
+      setHistData(hd);
       setReady(true);
     }
     init();
@@ -368,9 +382,9 @@ export default function App() {
     const today = todayKey();
     setEntries(updated);
     await DB.set(`day-${today}`, updated);
-    const hi = (await DB.get("hist-index")) || [];
-    if (!hi.includes(today)) {
-      const newHi = [...hi, today].sort();
+    
+    if (!histIndex.includes(today)) {
+      const newHi = [...histIndex, today].sort();
       setHistIndex(newHi);
       await DB.set("hist-index", newHi);
     }
@@ -378,6 +392,7 @@ export default function App() {
 
   const addEntry = async (item) => { await persistEntries([...entries, item]); flash("Hinzugefügt ✓"); };
   const removeEntry = async (i) => { await persistEntries(entries.filter((_, idx) => idx !== i)); };
+  
   const addFav = async (fav) => {
     if (favs.some((f) => f.desc === fav.desc)) { flash("Bereits Favorit"); return; }
     const updated = [...favs, fav];
@@ -385,11 +400,13 @@ export default function App() {
     await DB.set("favs", updated);
     flash("Favorit gespeichert ✓");
   };
+
   const removeFav = async (i) => {
     const updated = favs.filter((_, idx) => idx !== i);
     setFavs(updated);
     await DB.set("favs", updated);
   };
+
   const saveGoals = async (g) => { setGoals(g); await DB.set("goals", g); flash("Ziele gespeichert ✓"); };
 
   const TABS = [
