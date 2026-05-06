@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { BarChart, Bar, XAxis, ReferenceLine, ResponsiveContainer, Cell, LineChart, Line, YAxis, Tooltip } from "recharts";
+import { BarChart, Bar, XAxis, ReferenceLine, ResponsiveContainer, Cell, LineChart, Line, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 // ─── STORAGE & LOGIC ────────────────────────────────────────────────────────
 const DB = {
@@ -94,11 +94,10 @@ function StatBar({ label, value, max, unit, accent }) {
   );
 }
 
-// ─── VIEW: TODAY ─────────────────────────────────────────────────────────────
+// ─── VIEW: TODAY (TRACKER) ───────────────────────────────────────────────────
 function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, activeDate, removeWeight, saveFav }) {
   const [activeType, setActiveType] = useState(null);
   const [form, setForm] = useState(EMPTY_ENTRY);
-  const [weightInput, setWeightInput] = useState("");
   const weightEntry = weights.find(w => w.date === activeDate);
   const currentWeight = weightEntry?.val || "--";
 
@@ -116,20 +115,6 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm flex justify-between items-center">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-1">Gewicht am {fmtDate(activeDate)}</p>
-          <div className="flex items-center gap-2">
-            <div className="text-3xl font-black text-stone-900">{currentWeight} <span className="text-sm font-medium text-stone-300 uppercase">kg</span></div>
-            {weightEntry && <button onClick={() => removeWeight(activeDate)} className="text-stone-200 hover:text-red-400 p-1">✕</button>}
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <input type="number" step="0.1" value={weightInput} onChange={e => setWeightInput(e.target.value)} placeholder="0.0" className="w-16 bg-stone-50 rounded-xl px-3 py-2 text-sm outline-none font-bold text-center" />
-          <button onClick={() => { if(weightInput) { addWeight(num(weightInput)); setWeightInput(""); } }} className="bg-stone-900 text-white px-4 rounded-xl font-bold text-xs active:scale-95 transition-all">Log</button>
-        </div>
-      </div>
-
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm space-y-5">
         <StatBar label="Kalorien" value={t.kcal} max={goals.kcal} unit="kcal" accent="#1c1c1e" />
         <div className="grid grid-cols-2 gap-x-6 gap-y-4">
@@ -187,21 +172,11 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
   );
 }
 
-// ─── VIEW: HISTORY ──────────────────────────────────────────────────────────
+// ─── VIEW: HISTORY (TRENDS) ──────────────────────────────────────────────────
 function HistoryView({ historyData, todayEntries, goals, weights }) {
   const allHistory = { ...historyData, [todayKey()]: todayEntries };
-  const tdee = calculateTDEE(weights, allHistory);
   return (
     <div className="space-y-6">
-      {tdee && (
-        <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm flex justify-between items-center bg-gradient-to-br from-white to-stone-50">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-600 mb-1">Dynamischer Verbrauch (TDEE)</p>
-            <div className="text-3xl font-black text-stone-900">{tdee} <span className="text-sm font-medium text-stone-300 uppercase">kcal</span></div>
-            <p className="text-[9px] font-bold text-stone-400 mt-2 uppercase tracking-tighter">Basierend auf der letzten 21-Tage-Periode</p>
-          </div>
-        </div>
-      )}
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
         <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Energie Trend (kcal)</p>
         <div className="h-48 w-full -ml-4">
@@ -216,6 +191,65 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
               </Bar>
               <ReferenceLine y={goals.kcal} stroke="#fca5a5" strokeDasharray="4 4" />
             </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── VIEW: BODY (KÖRPER) ────────────────────────────────────────────────────
+function BodyView({ weights, addWeight, activeDate, removeWeight, historyData, todayEntries }) {
+  const [weightInput, setWeightInput] = useState("");
+  const allHistory = { ...historyData, [todayKey()]: todayEntries };
+  const tdee = calculateTDEE(weights, allHistory);
+  const weightEntry = weights.find(w => w.date === activeDate);
+  const currentWeight = weightEntry?.val || "--";
+
+  const chartData = getMovingAverage(weights, 7).slice(-14);
+  const minW = Math.floor(Math.min(...weights.map(w => w.val)) - 1) || 0;
+  const maxW = Math.ceil(Math.max(...weights.map(w => w.val)) + 1) || 100;
+
+  return (
+    <div className="space-y-6">
+      {/* Quick Log & TDEE */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm flex justify-between items-center">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-1">Gewicht Heute</p>
+            <div className="flex items-center gap-2">
+              <div className="text-3xl font-black text-stone-900">{currentWeight} <span className="text-sm font-medium text-stone-300 uppercase">kg</span></div>
+              {weightEntry && <button onClick={() => removeWeight(activeDate)} className="text-stone-200 hover:text-red-400 p-1">✕</button>}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <input type="number" step="0.1" value={weightInput} onChange={e => setWeightInput(e.target.value)} placeholder="0.0" className="w-16 bg-stone-50 rounded-xl px-3 py-2 text-sm outline-none font-bold text-center" />
+            <button onClick={() => { if(weightInput) { addWeight(num(weightInput)); setWeightInput(""); } }} className="bg-stone-900 text-white px-4 rounded-xl font-bold text-xs active:scale-95 transition-all">Log</button>
+          </div>
+        </div>
+
+        {tdee && (
+          <div className="bg-stone-900 rounded-3xl p-6 shadow-sm text-white">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400 mb-1">Wiss. Verbrauch (TDEE)</p>
+            <div className="text-3xl font-black">{tdee} <span className="text-sm font-medium text-stone-500 uppercase">kcal</span></div>
+            <p className="text-[9px] font-bold text-stone-500 mt-2 uppercase tracking-tighter">Basierend auf der letzten 21-Tage-Periode</p>
+          </div>
+        )}
+      </div>
+
+      {/* Gewicht Chart */}
+      <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
+        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Gewichtsverlauf (Trend)</p>
+        <div className="h-64 w-full -ml-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f4" />
+              <XAxis dataKey="date" tickFormatter={fmtDate} tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} />
+              <YAxis domain={[minW, maxW]} tick={{fontSize: 9, fill: '#d6d3d1'}} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
+              <Line type="monotone" dataKey="val" stroke="#e7e5e4" strokeWidth={2} dot={{ r: 4, fill: '#e7e5e4' }} />
+              <Line type="monotone" dataKey="avg" stroke="#1c1c1e" strokeWidth={4} dot={false} strokeLinecap="round" />
+            </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
@@ -314,18 +348,7 @@ export default function App() {
       <main className="px-6 max-w-lg mx-auto">
         {tab === "today" && <TodayView entries={entries} goals={goals} weights={weights} addEntry={addEntry} removeEntry={removeEntry} addWeight={addWeight} activeDate={selectedDate} removeWeight={removeWeight} saveFav={saveFav} />}
         {tab === "history" && <HistoryView historyData={histData} todayEntries={entries} goals={goals} weights={weights} />}
-        {tab === "weight" && (
-          <div className="space-y-6">
-            <div className="bg-white rounded-3xl p-6 border border-stone-100 h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={getMovingAverage(weights, 7)}>
-                  <YAxis hide domain={['dataMin - 1', 'dataMax + 1']} />
-                  <Line type="monotone" dataKey="avg" stroke="#1c1c1e" strokeWidth={5} dot={false} strokeLinecap="round" />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
+        {tab === "weight" && <BodyView weights={weights} addWeight={addWeight} activeDate={selectedDate} removeWeight={removeWeight} historyData={histData} todayEntries={entries} />}
         {tab === "favs" && (
           <div className="space-y-3">
             {favs.map((f, i) => (
