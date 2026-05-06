@@ -27,7 +27,6 @@ const DEFAULT_GOALS = { kcal: 2000, prot: 150, carbs: 250, fat: 70, fiber: 30 };
 const sum = (arr, key) => Math.round(arr.reduce((s, i) => s + (Number(i[key]) || 0), 0) * 10) / 10;
 const num = (v) => v === "" ? 0 : parseFloat(String(v).replace(",", ".")) || 0;
 
-// Kalkuliert Gesamtkalorien basierend auf Makronährstoffen (wissenschaftliche Standards)
 const calcKcalFromMacros = (g) => {
   return Math.round(num(g.prot) * 4 + num(g.carbs) * 4 + num(g.fat) * 9 + num(g.fiber) * 2);
 };
@@ -68,13 +67,14 @@ function StatBar({ label, value, max, unit, accent }) {
   );
 }
 
-// ─── VIEW: TODAY (MEAL CATEGORIES + WEIGHT) ──────────────────────────────────
-function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, activeDate }) {
+// ─── VIEW: TODAY ─────────────────────────────────────────────────────────────
+function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, activeDate, removeWeight }) {
   const [activeType, setActiveType] = useState(null);
   const [form, setForm] = useState(EMPTY_ENTRY);
   const [weightInput, setWeightInput] = useState("");
 
-  const currentWeight = weights.find(w => w.date === activeDate)?.val || "--";
+  const weightEntry = weights.find(w => w.date === activeDate);
+  const currentWeight = weightEntry?.val || "--";
 
   const updateForm = (k, v) => {
     setForm(f => {
@@ -92,12 +92,19 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
     <div className="space-y-6">
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm flex justify-between items-center">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-1">Gewicht heute</p>
-          <div className="text-3xl font-black text-stone-900">{currentWeight} <span className="text-sm font-medium text-stone-300 uppercase">kg</span></div>
+          <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-1">Gewicht am {fmtDate(activeDate)}</p>
+          <div className="flex items-center gap-2">
+            <div className="text-3xl font-black text-stone-900">{currentWeight} <span className="text-sm font-medium text-stone-300 uppercase">kg</span></div>
+            {weightEntry && (
+              <button onClick={() => removeWeight(activeDate)} className="text-stone-200 hover:text-red-400 p-1 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex gap-2">
           <input type="number" step="0.1" value={weightInput} onChange={e => setWeightInput(e.target.value)} placeholder="0.0" className="w-16 bg-stone-50 rounded-xl px-3 py-2 text-sm outline-none font-bold text-center" />
-          <button onClick={() => { if(weightInput) { addWeight(num(weightInput)); setWeightInput(""); } }} className="bg-stone-900 text-white px-4 rounded-xl font-bold text-xs active:scale-95 transition-all">OK</button>
+          <button onClick={() => { if(weightInput) { addWeight(num(weightInput)); setWeightInput(""); } }} className="bg-stone-900 text-white px-4 rounded-xl font-bold text-xs active:scale-95 transition-all">Log</button>
         </div>
       </div>
 
@@ -134,8 +141,8 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
                 <div className="px-6 pb-6 space-y-4 animate-in slide-in-from-top-2 duration-200">
                   <div className="h-px bg-stone-50 w-full mb-4" />
                   {typeEntries.map((item, i) => (
-                    <div key={i} className="flex justify-between items-center group">
-                      <div className="min-w-0 flex-1">
+                    <div key={i} className="flex justify-between items-center">
+                      <div className="min-w-0 flex-1 mr-2">
                         <div className="text-[13px] font-bold text-stone-700 truncate">{item.desc}</div>
                         <div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">
                           {item.kcal} kcal · {item.prot}P · {item.carbs}C · {item.fat}F
@@ -169,39 +176,60 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
 function WeightView({ weights, removeWeight }) {
   const sorted = [...weights].sort((a, b) => new Date(a.date) - new Date(b.date));
   const dataWithAvg = getMovingAverage(sorted, 7);
+  const minWeight = sorted.length > 0 ? Math.min(...sorted.map(w => w.val)) : 0;
+  const maxWeight = sorted.length > 0 ? Math.max(...sorted.map(w => w.val)) : 100;
 
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Gewichtsverlauf (kg)</p>
+        <div className="flex justify-between items-center mb-6">
+          <p className="text-[10px] font-black uppercase tracking-widest text-stone-300">Gewichtsverlauf (kg)</p>
+          <div className="flex items-center gap-3">
+             <div className="flex items-center gap-1.5"><div className="w-2 h-0.5 bg-stone-200 rounded-full" /><span className="text-[8px] font-bold text-stone-400 uppercase">Log</span></div>
+             <div className="flex items-center gap-1.5"><div className="w-2 h-1 bg-stone-900 rounded-full" /><span className="text-[8px] font-bold text-stone-400 uppercase">Trend</span></div>
+          </div>
+        </div>
+
         {dataWithAvg.length > 1 ? (
-          <div className="h-64 w-full -ml-4">
+          <div className="h-72 w-full -ml-4">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={dataWithAvg} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+              <LineChart data={dataWithAvg} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <XAxis dataKey="date" hide />
-                <YAxis orientation="right" tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} domain={['dataMin - 1', 'dataMax + 1']} />
-                <Tooltip contentStyle={{ borderRadius: '20px', border: 'none' }} labelFormatter={v => fmtDate(v)} />
-                <Line type="monotone" dataKey="val" stroke="#f5f5f4" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-                <Line type="monotone" dataKey="avg" stroke="#1c1c1e" strokeWidth={5} dot={false} />
+                <YAxis orientation="right" tick={{fontSize: 10, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} domain={[Math.floor(minWeight - 1), Math.ceil(maxWeight + 1)]} tickFormatter={(v) => `${v}kg`} />
+                <Tooltip contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.05)' }} labelFormatter={v => fmtDate(v)} />
+                <Line type="monotone" dataKey="val" stroke="#f5f5f4" strokeWidth={2} strokeDasharray="5 5" dot={{ r: 3, fill: '#f5f5f4' }} />
+                <Line type="monotone" dataKey="avg" stroke="#1c1c1e" strokeWidth={5} dot={false} strokeLinecap="round" />
               </LineChart>
             </ResponsiveContainer>
           </div>
         ) : <div className="h-48 flex items-center justify-center text-stone-300 text-xs italic bg-stone-50 rounded-2xl border-2 border-dashed border-stone-100">Mind. 2 Logs nötig...</div>}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 ml-4">Letzte Einträge</p>
+        {[...weights].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0, 5).map((w, i) => (
+          <div key={i} className="bg-white rounded-2xl px-5 py-4 border border-stone-50 flex justify-between items-center">
+            <div>
+              <div className="text-sm font-black text-stone-800">{w.val} kg</div>
+              <div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">{fmtDate(w.date)}</div>
+            </div>
+            <button onClick={() => removeWeight(w.date)} className="text-stone-200 hover:text-red-400 p-2">✕</button>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
 // ─── VIEW: ANALYSE ───────────────────────────────────────────────────────────
-function AnalyseView({ historyData, todayEntries, weights, goals }) {
-  const [view, setView] = useState('month');
+function AnalyseView({ historyData, todayEntries, goals }) {
   const allFood = { ...historyData, [todayKey()]: todayEntries };
   const stats = (() => {
     const groups = {};
     Object.keys(allFood).forEach(dateStr => {
       const d = new Date(dateStr + "T12:00:00");
-      let key = view === 'week' ? `KW ${Math.ceil((((d - new Date(d.getFullYear(), 0, 1)) / 86400000) + 1) / 7)}` : d.toLocaleDateString("de-DE", { month: "long", year: "numeric" });
-      if (!groups[key]) groups[key] = { label: key, kcal: [], w: [], days: 0, dateObj: d };
+      let key = d.toLocaleDateString("de-DE", { month: "short", year: "2-digit" });
+      if (!groups[key]) groups[key] = { label: key, kcal: [], days: 0, dateObj: d };
       if (allFood[dateStr].length > 0) { groups[key].kcal.push(sum(allFood[dateStr], "kcal")); groups[key].days++; }
     });
     return Object.values(groups).map(g => ({ ...g, avgKcal: g.days > 0 ? Math.round(g.kcal.reduce((a, b) => a + b, 0) / g.days) : 0 })).sort((a, b) => b.dateObj - a.dateObj);
@@ -210,7 +238,7 @@ function AnalyseView({ historyData, todayEntries, weights, goals }) {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-300 mb-6">Energie Trend (kcal)</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Energie Trend (kcal)</p>
         <div className="h-48 w-full -ml-4">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={[...stats].slice(0, 6).reverse()} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
@@ -291,7 +319,13 @@ export default function App() {
     flash(`Gewicht: ${v}kg`);
   };
 
-  // Synchronisiert Kalorienziel automatisch bei Änderung der Makro-Ziele
+  const removeWeight = async (d) => {
+    const updated = weights.filter(w => w.date !== d);
+    setWeights(updated);
+    await DB.set("weights", updated);
+    flash("Gewicht gelöscht");
+  };
+
   const updateGoals = (newGoals) => {
     const withKcal = { ...newGoals, kcal: calcKcalFromMacros(newGoals) };
     setGoals(withKcal);
@@ -317,16 +351,14 @@ export default function App() {
         </div>
         <div className="flex flex-col items-end">
           <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-stone-100 border-none rounded-xl px-3 py-2 text-[10px] font-black text-stone-600 outline-none" />
-          {selectedDate !== todayKey() && (
-            <button onClick={() => setSelectedDate(todayKey())} className="text-[9px] font-black text-amber-600 mt-2 uppercase">Heute</button>
-          )}
+          {selectedDate !== todayKey() && <button onClick={() => setSelectedDate(todayKey())} className="text-[9px] font-black text-amber-600 mt-2 uppercase">Heute</button>}
         </div>
       </header>
 
       <main className="px-6 max-w-lg mx-auto">
-        {tab === "today" && <TodayView entries={entries} goals={goals} weights={weights} addEntry={addEntry} removeEntry={removeEntry} addWeight={addWeight} activeDate={selectedDate} />}
-        {tab === "history" && <AnalyseView historyData={histData} todayEntries={entries} weights={weights} goals={goals} />}
-        {tab === "weight" && <WeightView weights={weights} removeWeight={async(d)=>{const u=weights.filter(w=>w.date!==d); setWeights(u); await DB.set("weights",u);}} />}
+        {tab === "today" && <TodayView entries={entries} goals={goals} weights={weights} addEntry={addEntry} removeEntry={removeEntry} addWeight={addWeight} activeDate={selectedDate} removeWeight={removeWeight} />}
+        {tab === "history" && <AnalyseView historyData={histData} todayEntries={entries} goals={goals} />}
+        {tab === "weight" && <WeightView weights={weights} removeWeight={removeWeight} />}
         {tab === "favs" && (
           <div className="space-y-3">
             {favs.map((f, i) => (
@@ -336,9 +368,7 @@ export default function App() {
                   <div className="text-[10px] font-bold text-stone-300 uppercase">{f.kcal} kcal | {f.prot}P</div>
                 </div>
                 <div className="flex gap-1">
-                  {MEAL_TYPES.map(type => (
-                    <button key={type} onClick={() => addEntry({...f, type})} className="bg-stone-50 text-[8px] font-black p-2 rounded-lg hover:bg-stone-100">{type[0]}</button>
-                  ))}
+                  {MEAL_TYPES.map(type => <button key={type} onClick={() => addEntry({...f, type})} className="bg-stone-50 text-[8px] font-black p-2 rounded-lg hover:bg-stone-100">{type[0]}</button>)}
                 </div>
               </div>
             ))}
@@ -349,20 +379,11 @@ export default function App() {
             <div className="bg-stone-900 rounded-2xl p-6 text-white mb-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-1">Berechnetes Ziel</p>
               <div className="text-3xl font-black">{goals.kcal} <span className="text-xs font-medium text-stone-500 uppercase tracking-normal">kcal / Tag</span></div>
-              <p className="text-[9px] font-bold text-stone-500 mt-2 leading-relaxed">Kalorien werden automatisch aus Makro-Eingaben kalkuliert.</p>
             </div>
-            
             {["prot", "carbs", "fat", "fiber"].map(k => (
               <div key={k}>
-                <label className="text-[10px] font-black uppercase text-stone-400 mb-2 block">
-                  {k === "prot" ? "Protein (g)" : k === "carbs" ? "Kohlenhydrate (g)" : k === "fat" ? "Fette (g)" : "Ballaststoffe (g)"}
-                </label>
-                <input 
-                  value={goals[k]} 
-                  type="number" 
-                  className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-sm font-bold outline-none ring-1 ring-stone-100 focus:ring-stone-300 transition-all" 
-                  onChange={e => updateGoals({...goals, [k]: e.target.value})} 
-                />
+                <label className="text-[10px] font-black uppercase text-stone-400 mb-2 block">{k === "prot" ? "Protein (g)" : k === "carbs" ? "Kohlenhydrate (g)" : k === "fat" ? "Fette (g)" : "Ballaststoffe (g)"}</label>
+                <input value={goals[k]} type="number" className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-sm font-bold outline-none ring-1 ring-stone-100" onChange={e => updateGoals({...goals, [k]: e.target.value})} />
               </div>
             ))}
           </div>
