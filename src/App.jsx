@@ -168,7 +168,6 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
       
       days.push({
         label: fmtDate(key),
-        fullDate: key,
         kcal: sum(dayEntries, "kcal"),
         prot: sum(dayEntries, "prot"),
         carbs: sum(dayEntries, "carbs"),
@@ -179,14 +178,12 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
       });
     }
 
-    // TDEE Errechnung (Gleitender Verbrauch)
     return days.map((day, idx) => {
       if (idx === 0) return { ...day, tdee: goals.kcal };
       const prevWeight = days[idx-1].weight;
       if (day.weight && prevWeight && day.hasData) {
           const weightDiff = day.weight - prevWeight;
-          const kcalDiff = weightDiff * 7700; // 1kg = 7700kcal
-          return { ...day, tdee: Math.round(day.kcal - kcalDiff) };
+          return { ...day, tdee: Math.round(day.kcal - (weightDiff * 7700)) };
       }
       return { ...day, tdee: null };
     });
@@ -216,9 +213,8 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
         </div>
       </div>
 
-      {/* NEU: Errechneter Verbrauch (TDEE) */}
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Errechneter Verbrauch (TDEE)</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">TDEE Trend</p>
         <div className="h-48 w-full -ml-4">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData}>
@@ -233,10 +229,9 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
               <Tooltip cursor={{stroke: '#f5f5f4'}} contentStyle={{ borderRadius: '16px', border: 'none', fontSize: '10px', fontWeight: 'bold' }} />
               <Area type="monotone" dataKey="tdee" stroke="#1c1c1e" strokeWidth={3} fillOpacity={1} fill="url(#colorTdee)" connectNulls />
               <ReferenceLine y={goals.kcal} stroke="#d6d3d1" strokeDasharray="3 3" />
-            </BarChart>
+            </AreaChart>
           </ResponsiveContainer>
         </div>
-        <p className="text-[8px] text-stone-400 mt-2 italic font-medium">Basiert auf Gewichtsfluktuation (7700 kcal/kg). Benötigt tägliche Gewichts-Logs.</p>
       </div>
 
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
@@ -254,21 +249,93 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
           </ResponsiveContainer>
         </div>
       </div>
-      
+    </div>
+  );
+}
+
+function WeightView({ weights }) {
+  const [range, setRange] = useState("Tag"); // Tag, Woche, Monat, Quartal
+
+  const processedData = useMemo(() => {
+    if (!weights.length) return [];
+    const now = new Date();
+    let daysToLookBack = 7;
+    let grouping = "day";
+
+    if (range === "Woche") { daysToLookBack = 28; grouping = "week"; }
+    else if (range === "Monat") { daysToLookBack = 180; grouping = "month"; }
+    else if (range === "Quartal") { daysToLookBack = 730; grouping = "quarter"; }
+
+    const startDate = new Date();
+    startDate.setDate(now.getDate() - daysToLookBack);
+
+    // Filtern
+    const filtered = weights.filter(w => new Date(w.date) >= startDate);
+
+    // Gruppieren
+    const groups = {};
+    filtered.forEach(w => {
+      const d = new Date(w.date);
+      let key;
+      if (grouping === "day") key = w.date;
+      else if (grouping === "week") {
+          const oneJan = new Date(d.getFullYear(), 0, 1);
+          const weekNum = Math.ceil((((d - oneJan) / 86400000) + oneJan.getDay() + 1) / 7);
+          key = `KW ${weekNum}`;
+      }
+      else if (grouping === "month") key = d.toLocaleDateString("de-DE", { month: "short", year: "2-digit" });
+      else if (grouping === "quarter") {
+          const q = Math.floor(d.getMonth() / 3) + 1;
+          key = `Q${q} ${d.getFullYear().toString().slice(-2)}`;
+      }
+
+      if (!groups[key]) groups[key] = { label: key, sum: 0, count: 0 };
+      groups[key].sum += w.val;
+      groups[key].count += 1;
+    });
+
+    return Object.values(groups).map(g => ({
+      label: g.label,
+      val: Math.round((g.sum / g.count) * 10) / 10
+    }));
+  }, [weights, range]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex bg-stone-100 p-1 rounded-2xl">
+        {["Tag", "Woche", "Monat", "Quartal"].map(r => (
+          <button key={r} onClick={() => setRange(r)} className={`flex-1 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all ${range === r ? "bg-white text-stone-900 shadow-sm" : "text-stone-400"}`}>
+            {r}
+          </button>
+        ))}
+      </div>
+
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Zusammensetzung (g)</p>
-        <div className="h-56 w-full -ml-4">
+        <div className="flex justify-between items-baseline mb-6">
+          <p className="text-[10px] font-black uppercase tracking-widest text-stone-300">Gewichtsverlauf</p>
+          <p className="text-xs font-black text-stone-900">{range}s-Ø</p>
+        </div>
+        <div className="h-64 w-full -ml-4">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
+            <LineChart data={processedData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f4" />
               <XAxis dataKey="label" tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} />
-              <YAxis tick={{fontSize: 9, fill: '#d6d3d1'}} axisLine={false} />
-              <Tooltip cursor={{fill: '#fafaf8'}} contentStyle={{ borderRadius: '16px', border: 'none', fontSize: '10px', fontWeight: 'bold' }} />
-              <Bar dataKey="prot" stackId="a" fill="#16a34a" />
-              <Bar dataKey="carbs" stackId="a" fill="#d97706" />
-              <Bar dataKey="fat" stackId="a" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-            </BarChart>
+              <YAxis domain={['dataMin - 1', 'dataMax + 1']} tick={{fontSize: 9, fill: '#d6d3d1'}} axisLine={false} />
+              <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', fontSize: '10px', fontWeight: 'bold' }} />
+              <Line type="monotone" dataKey="val" stroke="#1c1c1e" strokeWidth={4} dot={{ r: 4, fill: "#1c1c1e", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6 }} />
+            </LineChart>
           </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white rounded-3xl p-5 border border-stone-100">
+           <p className="text-[9px] font-black text-stone-300 uppercase mb-1">Start</p>
+           <p className="text-lg font-black">{weights[0]?.val || "--"} <span className="text-xs text-stone-300">kg</span></p>
+        </div>
+        <div className="bg-white rounded-3xl p-5 border border-stone-100">
+           <p className="text-[9px] font-black text-stone-300 uppercase mb-1">Aktuell</p>
+           <p className="text-lg font-black">{weights[weights.length-1]?.val || "--"} <span className="text-xs text-stone-300">kg</span></p>
         </div>
       </div>
     </div>
@@ -344,22 +411,7 @@ export default function App() {
           />
         )}
         {tab === "history" && <HistoryView historyData={histData} todayEntries={entries} goals={goals} weights={weights} />}
-        {tab === "weight" && (
-          <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-             <p className="text-[10px] font-black uppercase text-stone-300 mb-4">Gewichtshistorie</p>
-             <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={weights.slice(-14)}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f4" />
-                    <XAxis dataKey="date" tickFormatter={fmtDate} tick={{fontSize: 9, fill: '#d6d3d1'}} axisLine={false} />
-                    <YAxis domain={['dataMin - 1', 'dataMax + 1']} tick={{fontSize: 9, fill: '#d6d3d1'}} axisLine={false} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="val" stroke="#1c1c1e" strokeWidth={3} dot={{ r: 4, fill: "#1c1c1e" }} />
-                  </LineChart>
-                </ResponsiveContainer>
-             </div>
-          </div>
-        )}
+        {tab === "weight" && <WeightView weights={weights} />}
         {tab === "favs" && (
           <div className="space-y-3">
             {favs.map((f, i) => (
