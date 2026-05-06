@@ -24,7 +24,6 @@ const MEAL_TYPES = ["Frühstück", "Mittagessen", "Abendessen", "Snack"];
 const EMPTY_ENTRY = { desc: "", kcal: "", prot: "", carbs: "", fat: "", fiber: "" };
 const DEFAULT_GOALS = { kcal: 2000, prot: 150, carbs: 250, fat: 70, fiber: 30 };
 
-// Robuste Konvertierung für Berechnungen
 const num = (v) => {
   if (v === "" || v === null || v === undefined) return 0;
   const parsed = typeof v === "string" ? parseFloat(v.replace(",", ".")) : v;
@@ -52,31 +51,24 @@ const getMovingAverage = (data, windowSize = 7) => {
 const calculateTDEE = (weights, history, days = 21) => {
   const sortedWeights = [...weights].sort((a, b) => new Date(a.date) - new Date(b.date));
   if (sortedWeights.length < 5) return null;
-  
   const now = new Date();
   const startLimit = new Date();
   startLimit.setDate(now.getDate() - days);
-  
   const relevantWeights = sortedWeights.filter(w => new Date(w.date) >= startLimit);
   if (relevantWeights.length < 3) return null;
-
   const firstW = relevantWeights[0];
   const lastW = relevantWeights[relevantWeights.length - 1];
   const weightDiff = lastW.val - firstW.val;
   const daySpan = (new Date(lastW.date) - new Date(firstW.date)) / 86400000;
-  
   if (daySpan <= 0) return null;
-
   let totalKcal = 0;
   let loggedDays = 0;
-  
   Object.keys(history).forEach(d => {
     if (new Date(d) >= new Date(firstW.date) && new Date(d) <= new Date(lastW.date)) {
       const dailyKcal = sum(history[d], "kcal");
       if (dailyKcal > 800) { totalKcal += dailyKcal; loggedDays++; }
     }
   });
-
   if (loggedDays < daySpan * 0.7) return null;
   const avgIntake = totalKcal / loggedDays;
   const energyFromWeight = (weightDiff * 7700) / daySpan;
@@ -93,7 +85,7 @@ const Icon = {
 };
 
 // ─── UI ATOMS ────────────────────────────────────────────────────────────────
-function StatBar({ label, value, max, unit, accent }) {
+function StatBar({ label, value, max, accent }) {
   const pct = Math.min((value / (max || 1)) * 100, 100);
   return (
     <div>
@@ -104,116 +96,94 @@ function StatBar({ label, value, max, unit, accent }) {
         </span>
       </div>
       <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
-        <div 
-          style={{ 
-            width: `${pct}%`, 
-            backgroundColor: value > max ? "#ef4444" : accent, 
-            transition: "width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)" 
-          }} 
-          className="h-full rounded-full" 
-        />
+        <div style={{ width: `${pct}%`, backgroundColor: value > max ? "#ef4444" : accent, transition: "width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)" }} className="h-full rounded-full" />
       </div>
     </div>
   );
 }
 
 // ─── VIEW: TODAY ─────────────────────────────────────────────────────────────
-function TodayView({ entries, goals, addEntry, removeEntry, saveFav }) {
+function TodayView({ entries, goals, addEntry, removeEntry, updateEntry, saveFav }) {
   const [activeType, setActiveType] = useState(null);
   const [form, setForm] = useState(EMPTY_ENTRY);
+  const [editingIndex, setEditingIndex] = useState(null);
 
   const updateForm = (k, v) => {
     setForm(f => {
       const next = { ...f, [k]: v };
-      if (["prot", "carbs", "fat", "fiber"].includes(k)) {
-        next.kcal = String(calcKcalFromMacros(next));
-      }
+      if (["prot", "carbs", "fat", "fiber"].includes(k)) next.kcal = String(calcKcalFromMacros(next));
       return next;
     });
   };
 
   const handleLog = (type) => {
-    if (form.desc) {
+    if (!form.desc) return;
+    if (editingIndex !== null) {
+      updateEntry(editingIndex, { ...form, type });
+    } else {
       addEntry({ ...form, type });
-      setForm(EMPTY_ENTRY);
     }
+    setForm(EMPTY_ENTRY);
+    setEditingIndex(null);
   };
 
   const totals = useMemo(() => ({
-    kcal: sum(entries, "kcal"),
-    prot: sum(entries, "prot"),
-    carbs: sum(entries, "carbs"),
-    fat: sum(entries, "fat"),
-    fiber: sum(entries, "fiber")
+    kcal: sum(entries, "kcal"), prot: sum(entries, "prot"), carbs: sum(entries, "carbs"), fat: sum(entries, "fat"), fiber: sum(entries, "fiber")
   }), [entries]);
 
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm space-y-5">
-        <StatBar label="Kalorien" value={totals.kcal} max={goals.kcal} unit="kcal" accent="#1c1c1e" />
+        <StatBar label="Kalorien" value={totals.kcal} max={goals.kcal} accent="#1c1c1e" />
         <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-          <StatBar label="Protein" value={totals.prot} max={goals.prot} unit="g" accent="#16a34a" />
-          <StatBar label="Carbs" value={totals.carbs} max={goals.carbs} unit="g" accent="#d97706" />
-          <StatBar label="Fette" value={totals.fat} max={goals.fat} unit="g" accent="#3b82f6" />
-          <StatBar label="Ballaststoffe" value={totals.fiber} max={goals.fiber} unit="g" accent="#9333ea" />
+          <StatBar label="Protein" value={totals.prot} max={goals.prot} accent="#16a34a" />
+          <StatBar label="Carbs" value={totals.carbs} max={goals.carbs} accent="#d97706" />
+          <StatBar label="Fette" value={totals.fat} max={goals.fat} accent="#3b82f6" />
+          <StatBar label="Ballaststoffe" value={totals.fiber} max={goals.fiber} accent="#9333ea" />
         </div>
       </div>
 
       <div className="space-y-3">
         {MEAL_TYPES.map(type => {
-          const typeEntries = entries.filter(e => e.type === type);
+          const typeEntries = entries.map((e, idx) => ({ ...e, originalIndex: idx })).filter(e => e.type === type);
           const typeKcal = sum(typeEntries, "kcal");
           const isOpen = activeType === type;
           return (
-            <div key={type} className="bg-white rounded-3xl border border-stone-100 shadow-sm overflow-hidden transition-all">
-              <button onClick={() => setActiveType(isOpen ? null : type)} className="w-full px-6 py-5 flex justify-between items-center active:bg-stone-50">
+            <div key={type} className={`bg-white rounded-3xl border transition-all ${editingIndex !== null && activeType === type ? "border-stone-900 ring-4 ring-stone-900/5" : "border-stone-100 shadow-sm"}`}>
+              <button onClick={() => { setActiveType(isOpen ? null : type); setEditingIndex(null); setForm(EMPTY_ENTRY); }} className="w-full px-6 py-5 flex justify-between items-center active:bg-stone-50">
                 <div className="flex items-center gap-3">
                   <div className={`w-2 h-2 rounded-full ${typeKcal > 0 ? 'bg-green-500' : 'bg-stone-200'}`} />
                   <span className="text-sm font-black text-stone-800">{type}</span>
                 </div>
-                <div className="text-right">
-                  <span className="text-xs font-black text-stone-900">{typeKcal}</span>
-                  <span className="text-[10px] font-bold text-stone-300 ml-1 uppercase">kcal</span>
-                </div>
+                <div className="text-right"><span className="text-xs font-black text-stone-900">{typeKcal}</span><span className="text-[10px] font-bold text-stone-300 ml-1 uppercase">kcal</span></div>
               </button>
               {isOpen && (
                 <div className="px-6 pb-6 space-y-4">
-                  {typeEntries.map((item, i) => (
-                    <div key={i} className="flex justify-between items-center">
-                      <div className="min-w-0 flex-1 mr-2">
-                        <div className="text-[13px] font-bold text-stone-700 truncate">{item.desc}</div>
-                        <div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">
-                          {item.kcal} kcal · {item.prot}P · {item.carbs}C · {item.fat}F · {item.fiber}B
-                        </div>
-                      </div>
-                      <button onClick={() => removeEntry(entries.indexOf(item))} className="text-stone-200 hover:text-red-400 text-xs">✕</button>
+                  {typeEntries.map((item) => (
+                    <div key={item.originalIndex} className={`flex justify-between items-center p-2 -mx-2 rounded-xl transition-colors ${editingIndex === item.originalIndex ? "bg-stone-50" : ""}`}>
+                      <button onClick={() => { setForm(item); setEditingIndex(item.originalIndex); }} className="min-w-0 flex-1 text-left mr-2 group">
+                        <div className="text-[13px] font-bold text-stone-700 truncate group-hover:text-stone-900">{item.desc}</div>
+                        <div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">{item.kcal} kcal · {item.prot}P · {item.carbs}C · {item.fat}F · {item.fiber}B</div>
+                      </button>
+                      <button onClick={() => removeEntry(item.originalIndex)} className="text-stone-200 hover:text-red-400 text-xs px-2">✕</button>
                     </div>
                   ))}
-                  <div className="space-y-3 pt-2">
-                    <input 
-                      value={form.desc} 
-                      onChange={e => updateForm("desc", e.target.value)} 
-                      onKeyDown={e => e.key === 'Enter' && handleLog(type)}
-                      placeholder="Was hast du gegessen?" 
-                      className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-[13px] outline-none font-medium" 
-                    />
+                  <div className="space-y-3 pt-4 border-t border-stone-50">
+                    <div className="flex justify-between items-center">
+                       <span className="text-[9px] font-black uppercase text-stone-400">{editingIndex !== null ? "Eintrag bearbeiten" : "Neuer Eintrag"}</span>
+                       {editingIndex !== null && <button onClick={() => {setEditingIndex(null); setForm(EMPTY_ENTRY);}} className="text-[9px] font-black uppercase text-red-400">Abbrechen</button>}
+                    </div>
+                    <input value={form.desc} onChange={e => updateForm("desc", e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLog(type)} placeholder="Name..." className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-[13px] outline-none font-bold" />
                     <div className="grid grid-cols-5 gap-1.5">
                       {["kcal", "prot", "carbs", "fat", "fiber"].map(k => (
                         <div key={k} className="flex flex-col gap-1">
                           <span className="text-[7px] font-black uppercase text-stone-300 text-center">{k}</span>
-                          <input 
-                            value={form[k]} 
-                            onChange={e => updateForm(k, e.target.value)} 
-                            onKeyDown={e => e.key === 'Enter' && handleLog(type)}
-                            placeholder="0" 
-                            type="number" 
-                            className="bg-stone-50 border-none rounded-xl py-2 text-center text-xs outline-none font-bold" 
-                          />
+                          <input value={form[k]} onChange={e => updateForm(k, e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLog(type)} placeholder="0" type="number" className="bg-stone-50 border-none rounded-xl py-2 text-center text-xs outline-none font-bold" />
                         </div>
                       ))}
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => handleLog(type)} className="flex-1 bg-stone-900 text-white font-black py-3 rounded-2xl text-xs uppercase tracking-widest active:scale-95 transition-all">Log</button>
+                      <button onClick={() => handleLog(type)} className={`flex-1 text-white font-black py-3 rounded-2xl text-xs uppercase tracking-widest active:scale-95 transition-all ${editingIndex !== null ? "bg-blue-600" : "bg-stone-900"}`}>{editingIndex !== null ? "Update" : "Log"}</button>
                       <button onClick={() => form.desc && saveFav(form)} className="bg-stone-100 text-stone-400 px-4 rounded-2xl active:scale-95">★</button>
                     </div>
                   </div>
@@ -231,30 +201,25 @@ function TodayView({ entries, goals, addEntry, removeEntry, saveFav }) {
 function HistoryView({ historyData, todayEntries, goals }) {
   const chartData = useMemo(() => {
     const allHistory = { ...historyData, [todayKey()]: todayEntries };
-    return Object.keys(allHistory).slice(-7).map(d => ({
-      label: fmtDate(d),
-      val: sum(allHistory[d], "kcal")
-    }));
+    return Object.keys(allHistory).slice(-7).map(d => ({ label: fmtDate(d), val: sum(allHistory[d], "kcal") }));
   }, [historyData, todayEntries]);
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Energie Trend (kcal)</p>
-        <div className="h-48 w-full -ml-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-              <XAxis dataKey="label" tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} />
-              <YAxis hide domain={[0, 'dataMax + 500']} />
-              <Bar dataKey="val" radius={[6, 6, 6, 6]} barSize={32}>
-                {chartData.map((entry, index) => (
-                  <Cell key={index} fill={entry.val > goals.kcal ? "#fca5a5" : "#1c1c1e"} />
-                ))}
-              </Bar>
-              <ReferenceLine y={goals.kcal} stroke="#fca5a5" strokeDasharray="4 4" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+    <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
+      <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Energie Trend (kcal)</p>
+      <div className="h-48 w-full -ml-4">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData}>
+            <XAxis dataKey="label" tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} />
+            <YAxis hide domain={[0, 'dataMax + 500']} />
+            <Bar dataKey="val" radius={[6, 6, 6, 6]} barSize={32}>
+              {chartData.map((entry, index) => (
+                <Cell key={index} fill={entry.val > goals.kcal ? "#fca5a5" : "#1c1c1e"} />
+              ))}
+            </Bar>
+            <ReferenceLine y={goals.kcal} stroke="#fca5a5" strokeDasharray="4 4" />
+          </BarChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
@@ -263,75 +228,50 @@ function HistoryView({ historyData, todayEntries, goals }) {
 // ─── VIEW: BODY ──────────────────────────────────────────────────────────────
 function BodyView({ weights, addWeight, activeDate, removeWeight, historyData, todayEntries }) {
   const [weightInput, setWeightInput] = useState("");
-  
-  const currentWeight = useMemo(() => 
-    weights.find(w => w.date === activeDate)?.val || "--", 
-  [weights, activeDate]);
-
+  const currentWeight = useMemo(() => weights.find(w => w.date === activeDate)?.val || "--", [weights, activeDate]);
   const tdee = useMemo(() => {
     const allHistory = { ...historyData, [todayKey()]: todayEntries };
     return calculateTDEE(weights, allHistory);
   }, [weights, historyData, todayEntries]);
-
-  const chartData = useMemo(() => 
-    getMovingAverage(weights, 7).slice(-14), 
-  [weights]);
-
+  const chartData = useMemo(() => getMovingAverage(weights, 7).slice(-14), [weights]);
   const { minW, maxW } = useMemo(() => {
     const vals = weights.map(w => w.val);
     if (vals.length === 0) return { minW: 0, maxW: 100 };
-    return {
-      minW: Math.floor(Math.min(...vals) - 1),
-      maxW: Math.ceil(Math.max(...vals) + 1)
-    };
+    return { minW: Math.floor(Math.min(...vals) - 1), maxW: Math.ceil(Math.max(...vals) + 1) };
   }, [weights]);
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm flex justify-between items-center">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-1">Gewicht Heute</p>
-            <div className="flex items-center gap-2">
-              <div className="text-3xl font-black text-stone-900">{currentWeight} <span className="text-sm font-medium text-stone-300 uppercase">kg</span></div>
-              {currentWeight !== "--" && <button onClick={() => removeWeight(activeDate)} className="text-stone-200 hover:text-red-400 p-1">✕</button>}
-            </div>
-          </div>
+          <div><p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-1">Gewicht Heute</p>
+          <div className="flex items-center gap-2">
+            <div className="text-3xl font-black text-stone-900">{currentWeight} <span className="text-sm font-medium text-stone-300 uppercase">kg</span></div>
+            {currentWeight !== "--" && <button onClick={() => removeWeight(activeDate)} className="text-stone-200 hover:text-red-400 p-1">✕</button>}
+          </div></div>
           <div className="flex gap-2">
-            <input 
-              type="number" step="0.1" value={weightInput} 
-              onChange={e => setWeightInput(e.target.value)} 
-              onKeyDown={e => e.key === 'Enter' && weightInput && (addWeight(num(weightInput)), setWeightInput(""))}
-              placeholder="0.0" 
-              className="w-16 bg-stone-50 rounded-xl px-3 py-2 text-sm outline-none font-bold text-center" 
-            />
+            <input type="number" step="0.1" value={weightInput} onChange={e => setWeightInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && weightInput && (addWeight(num(weightInput)), setWeightInput(""))} placeholder="0.0" className="w-16 bg-stone-50 rounded-xl px-3 py-2 text-sm outline-none font-bold text-center" />
             <button onClick={() => { if(weightInput) { addWeight(num(weightInput)); setWeightInput(""); } }} className="bg-stone-900 text-white px-4 rounded-xl font-bold text-xs active:scale-95 transition-all">Log</button>
           </div>
         </div>
-
         {tdee && (
           <div className="bg-stone-900 rounded-3xl p-6 shadow-sm text-white">
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-stone-400 mb-1">Wiss. Verbrauch (TDEE)</p>
             <div className="text-3xl font-black">{tdee} <span className="text-sm font-medium text-stone-500 uppercase">kcal</span></div>
-            <p className="text-[9px] font-bold text-stone-500 mt-2 uppercase tracking-tighter">Basierend auf 21-Tage-Fenster</p>
           </div>
         )}
       </div>
-
-      <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Gewichtsverlauf (Trend)</p>
-        <div className="h-64 w-full -ml-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f4" />
-              <XAxis dataKey="date" tickFormatter={fmtDate} tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} />
-              <YAxis domain={[minW, maxW]} tick={{fontSize: 9, fill: '#d6d3d1'}} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-              <Line type="monotone" dataKey="val" stroke="#e7e5e4" strokeWidth={2} dot={{ r: 4, fill: '#e7e5e4' }} />
-              <Line type="monotone" dataKey="avg" stroke="#1c1c1e" strokeWidth={4} dot={false} strokeLinecap="round" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+      <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm h-64">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f4" />
+            <XAxis dataKey="date" tickFormatter={fmtDate} tick={{fontSize: 9, fill: '#d6d3d1'}} axisLine={false} />
+            <YAxis domain={[minW, maxW]} tick={{fontSize: 9, fill: '#d6d3d1'}} axisLine={false} />
+            <Tooltip contentStyle={{ borderRadius: '16px', border: 'none' }} />
+            <Line type="monotone" dataKey="val" stroke="#e7e5e4" strokeWidth={2} dot={{ r: 4 }} />
+            <Line type="monotone" dataKey="avg" stroke="#1c1c1e" strokeWidth={4} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
@@ -357,9 +297,8 @@ export default function App() {
       setFavs(f || []);
       if (hi) {
         const hd = {};
-        for (const k of hi.slice(-30)) { // Lade nur die letzten 30 Tage für Performance
-          const d = await DB.get(`day-${k}`); 
-          if (d) hd[k] = d; 
+        for (const k of hi.slice(-30)) {
+          const d = await DB.get(`day-${k}`); if (d) hd[k] = d;
         }
         setHistData(hd);
       }
@@ -368,32 +307,33 @@ export default function App() {
     init();
   }, []);
 
-  useEffect(() => {
-    if (ready) {
-      DB.get(`day-${selectedDate}`).then(e => setEntries(e || []));
-    }
-  }, [selectedDate, ready]);
+  useEffect(() => { if (ready) DB.get(`day-${selectedDate}`).then(e => setEntries(e || [])); }, [selectedDate, ready]);
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2000); };
 
   const addEntry = async (item) => {
-    const updated = [...entries, item]; 
-    setEntries(updated);
+    const updated = [...entries, item]; setEntries(updated);
     await DB.set(`day-${selectedDate}`, updated);
     const hi = await DB.get("hist-index") || [];
     if (!hi.includes(selectedDate)) await DB.set("hist-index", [...hi, selectedDate]);
-    flash(`Gespeichert`);
+    flash("Log gespeichert");
   };
 
-  const removeEntry = async (index) => {
-    const updated = entries.filter((_, i) => i !== index);
+  const removeEntry = async (idx) => {
+    const updated = entries.filter((_, i) => i !== idx);
     setEntries(updated);
     await DB.set(`day-${selectedDate}`, updated);
   };
 
+  const updateEntry = async (idx, item) => {
+    const updated = [...entries]; updated[idx] = item;
+    setEntries(updated);
+    await DB.set(`day-${selectedDate}`, updated);
+    flash("Eintrag aktualisiert");
+  };
+
   const saveFav = async (f) => {
-    const updated = [...favs, f];
-    setFavs(updated);
+    const updated = [...favs, f]; setFavs(updated);
     await DB.set("favs", updated);
     flash("Favorit ★");
   };
@@ -401,16 +341,13 @@ export default function App() {
   const addWeight = async (v) => {
     const filtered = weights.filter(w => w.date !== selectedDate);
     const updated = [...filtered, { date: selectedDate, val: v }].sort((a,b)=>new Date(a.date)-new Date(b.date));
-    setWeights(updated);
-    await DB.set("weights", updated);
+    setWeights(updated); await DB.set("weights", updated);
     flash(`${v}kg geloggt`);
   };
 
   const removeWeight = async (d) => {
     const updated = weights.filter(w => w.date !== d);
-    setWeights(updated);
-    await DB.set("weights", updated);
-    flash("Gewicht entfernt");
+    setWeights(updated); await DB.set("weights", updated);
   };
 
   const TABS = [
@@ -426,30 +363,25 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#fafaf8] text-stone-900 pb-32 font-sans antialiased">
       <header className="px-8 pt-16 pb-8 flex justify-between items-end max-w-lg mx-auto">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-stone-300 mb-1">Performance Track</p>
-          <h1 className="text-4xl font-black tracking-tighter text-stone-900">{TABS.find(t=>t.id===tab).label}</h1>
-        </div>
+        <div><p className="text-[10px] font-black uppercase tracking-[0.4em] text-stone-300 mb-1">Performance Track</p>
+        <h1 className="text-4xl font-black tracking-tighter text-stone-900">{TABS.find(t=>t.id===tab).label}</h1></div>
         <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-stone-100 border-none rounded-xl px-3 py-2 text-[10px] font-black text-stone-600 outline-none" />
       </header>
 
       <main className="px-6 max-w-lg mx-auto">
-        {tab === "today" && <TodayView entries={entries} goals={goals} addEntry={addEntry} removeEntry={removeEntry} saveFav={saveFav} />}
+        {tab === "today" && <TodayView entries={entries} goals={goals} addEntry={addEntry} removeEntry={removeEntry} updateEntry={updateEntry} saveFav={saveFav} />}
         {tab === "history" && <HistoryView historyData={histData} todayEntries={entries} goals={goals} />}
         {tab === "weight" && <BodyView weights={weights} addWeight={addWeight} activeDate={selectedDate} removeWeight={removeWeight} historyData={histData} todayEntries={entries} />}
         {tab === "favs" && (
           <div className="space-y-3">
-            {favs.length === 0 && <p className="text-center py-20 text-stone-300 font-bold text-xs uppercase tracking-widest">Keine Favoriten gespeichert</p>}
             {favs.map((f, i) => (
-              <div key={i} className="bg-white rounded-3xl p-5 border border-stone-50 shadow-sm flex justify-between items-center">
+              <div key={i} className="bg-white rounded-3xl p-5 border border-stone-50 flex justify-between items-center">
                 <div className="min-w-0 flex-1 mr-4">
                   <div className="text-sm font-black truncate">{f.desc}</div>
                   <div className="text-[10px] font-bold text-stone-300 uppercase">{f.kcal} kcal | {f.prot}P | {f.fiber}B</div>
                 </div>
                 <div className="flex gap-1">
-                  {MEAL_TYPES.map(type => (
-                    <button key={type} onClick={() => addEntry({...f, type})} className="bg-stone-50 text-[8px] font-black p-2 rounded-lg hover:bg-stone-900 hover:text-white transition-colors">{type[0]}</button>
-                  ))}
+                  {MEAL_TYPES.map(type => <button key={type} onClick={() => addEntry({...f, type})} className="bg-stone-50 text-[8px] font-black p-2 rounded-lg hover:bg-stone-900 hover:text-white transition-all">{type[0]}</button>)}
                   <button onClick={() => { const u = favs.filter((_, idx)=>idx!==i); setFavs(u); DB.set("favs", u); }} className="text-stone-200 ml-2 hover:text-red-400">✕</button>
                 </div>
               </div>
@@ -461,22 +393,10 @@ export default function App() {
             {["prot", "carbs", "fat", "fiber"].map(k => (
               <div key={k}>
                 <label className="text-[10px] font-black uppercase text-stone-400 mb-2 block">{k}</label>
-                <input 
-                  value={goals[k]} type="number" 
-                  className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-sm font-bold outline-none" 
-                  onChange={e => { 
-                    const g = {...goals, [k]: e.target.value}; 
-                    g.kcal = calcKcalFromMacros(g); 
-                    setGoals(g); 
-                    DB.set("goals", g); 
-                  }} 
-                />
+                <input value={goals[k]} type="number" className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-sm font-bold outline-none" onChange={e => { const g = {...goals, [k]: e.target.value}; g.kcal = calcKcalFromMacros(g); setGoals(g); DB.set("goals", g); }} />
               </div>
             ))}
-            <div className="pt-4 border-t border-stone-50">
-              <p className="text-[10px] font-black uppercase text-stone-400 mb-1">Berechnetes Kalorienziel</p>
-              <p className="text-2xl font-black text-stone-900">{goals.kcal} kcal</p>
-            </div>
+            <div className="pt-4 border-t border-stone-50"><p className="text-[10px] font-black uppercase text-stone-400 mb-1">Ziel</p><p className="text-2xl font-black text-stone-900">{goals.kcal} kcal</p></div>
           </div>
         )}
       </main>
@@ -485,8 +405,8 @@ export default function App() {
         <div className="flex justify-between items-center max-w-sm mx-auto">
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center gap-1.5 transition-all ${tab === t.id ? "text-stone-900" : "text-stone-300"}`}>
-              <div className={`p-2.5 rounded-2xl transition-all ${tab === t.id ? "bg-stone-900 text-white shadow-lg scale-110" : "hover:bg-stone-50"}`}>{t.icon}</div>
-              <span className={`text-[8px] font-black uppercase tracking-widest transition-opacity ${tab === t.id ? "opacity-100" : "opacity-0"}`}>{t.label}</span>
+              <div className={`p-2.5 rounded-2xl transition-all ${tab === t.id ? "bg-stone-900 text-white shadow-lg scale-110" : ""}`}>{t.icon}</div>
+              <span className={`text-[8px] font-black uppercase tracking-widest ${tab === t.id ? "opacity-100" : "opacity-0"}`}>{t.label}</span>
             </button>
           ))}
         </div>
