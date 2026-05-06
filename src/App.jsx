@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { BarChart, Bar, XAxis, ReferenceLine, ResponsiveContainer, Cell, LineChart, Line, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { BarChart, Bar, XAxis, ReferenceLine, ResponsiveContainer, Cell, LineChart, Line, YAxis, Tooltip, CartesianGrid, AreaChart, Area } from "recharts";
 
 // ─── STORAGE & LOGIC ────────────────────────────────────────────────────────
 const DB = {
@@ -155,42 +155,50 @@ function TodayView({ entries, goals, weights, selectedDate, addEntry, removeEntr
   );
 }
 
-function HistoryView({ historyData, todayEntries, goals }) {
+function HistoryView({ historyData, todayEntries, goals, weights }) {
   const chartData = useMemo(() => {
     const all = { ...historyData, [todayKey()]: todayEntries };
     const days = [];
+    
     for (let i = 6; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
       const key = d.toISOString().split("T")[0];
       const dayEntries = all[key] || [];
+      const weightEntry = weights.find(w => w.date === key);
+      
       days.push({
         label: fmtDate(key),
+        fullDate: key,
         kcal: sum(dayEntries, "kcal"),
         prot: sum(dayEntries, "prot"),
         carbs: sum(dayEntries, "carbs"),
         fat: sum(dayEntries, "fat"),
         fiber: sum(dayEntries, "fiber"),
+        weight: weightEntry ? weightEntry.val : null,
         hasData: dayEntries.length > 0
       });
     }
-    return days;
-  }, [historyData, todayEntries]);
+
+    // TDEE Errechnung (Gleitender Verbrauch)
+    return days.map((day, idx) => {
+      if (idx === 0) return { ...day, tdee: goals.kcal };
+      const prevWeight = days[idx-1].weight;
+      if (day.weight && prevWeight && day.hasData) {
+          const weightDiff = day.weight - prevWeight;
+          const kcalDiff = weightDiff * 7700; // 1kg = 7700kcal
+          return { ...day, tdee: Math.round(day.kcal - kcalDiff) };
+      }
+      return { ...day, tdee: null };
+    });
+  }, [historyData, todayEntries, weights, goals]);
 
   const weeklyTotals = useMemo(() => {
-    // Nur Tage zählen, die Einträge haben
     const trackedDays = chartData.filter(d => d.hasData);
     if (trackedDays.length === 0) return { total: 0, diff: 0, status: "Keine Daten", days: 0 };
-
     const totalKcal = trackedDays.reduce((acc, d) => acc + d.kcal, 0);
     const goalKcalForPeriod = goals.kcal * trackedDays.length;
     const diff = Math.round(totalKcal - goalKcalForPeriod);
-
-    return { 
-      total: totalKcal, 
-      diff, 
-      status: diff <= 0 ? "Defizit" : "Überschuss",
-      days: trackedDays.length
-    };
+    return { total: totalKcal, diff, status: diff <= 0 ? "Defizit" : "Überschuss", days: trackedDays.length };
   }, [chartData, goals]);
 
   return (
@@ -206,6 +214,29 @@ function HistoryView({ historyData, todayEntries, goals }) {
             {weeklyTotals.days === 0 ? "--" : (weeklyTotals.diff > 0 ? `+${weeklyTotals.diff}` : weeklyTotals.diff)} <span className="text-[10px] opacity-50">kcal</span>
           </div>
         </div>
+      </div>
+
+      {/* NEU: Errechneter Verbrauch (TDEE) */}
+      <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
+        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Errechneter Verbrauch (TDEE)</p>
+        <div className="h-48 w-full -ml-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={chartData}>
+              <defs>
+                <linearGradient id="colorTdee" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#1c1c1e" stopOpacity={0.1}/>
+                  <stop offset="95%" stopColor="#1c1c1e" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="label" tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} />
+              <YAxis hide domain={['dataMin - 500', 'dataMax + 500']} />
+              <Tooltip cursor={{stroke: '#f5f5f4'}} contentStyle={{ borderRadius: '16px', border: 'none', fontSize: '10px', fontWeight: 'bold' }} />
+              <Area type="monotone" dataKey="tdee" stroke="#1c1c1e" strokeWidth={3} fillOpacity={1} fill="url(#colorTdee)" connectNulls />
+              <ReferenceLine y={goals.kcal} stroke="#d6d3d1" strokeDasharray="3 3" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-[8px] text-stone-400 mt-2 italic font-medium">Basiert auf Gewichtsfluktuation (7700 kcal/kg). Benötigt tägliche Gewichts-Logs.</p>
       </div>
 
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
@@ -278,8 +309,6 @@ export default function App() {
     setEntries(updated); await DB.set(`day-${date}`, updated);
     const hi = await DB.get("hist-index") || [];
     if (!hi.includes(date)) await DB.set("hist-index", [...hi, date]);
-    
-    // Update local histData for charts
     setHistData(prev => ({...prev, [date]: updated}));
   };
 
@@ -314,7 +343,7 @@ export default function App() {
             saveFav={f => { const u = [...favs, f]; setFavs(u); DB.set("favs", u); flash("Favorit ★"); }} 
           />
         )}
-        {tab === "history" && <HistoryView historyData={histData} todayEntries={entries} goals={goals} />}
+        {tab === "history" && <HistoryView historyData={histData} todayEntries={entries} goals={goals} weights={weights} />}
         {tab === "weight" && (
           <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
              <p className="text-[10px] font-black uppercase text-stone-300 mb-4">Gewichtshistorie</p>
