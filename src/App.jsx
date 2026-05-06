@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { BarChart, Bar, XAxis, ReferenceLine, ResponsiveContainer, Cell, LineChart, Line, YAxis, Tooltip, CartesianGrid, AreaChart, Area } from "recharts";
+import { BarChart, Bar, XAxis, ReferenceLine, ResponsiveContainer, Cell, LineChart, Line, YAxis, Tooltip, CartesianGrid, AreaChart, Area, PieChart, Pie } from "recharts";
 
 // ─── STORAGE & LOGIC ────────────────────────────────────────────────────────
 const DB = {
@@ -168,6 +168,7 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
       
       days.push({
         label: fmtDate(key),
+        fullDate: key,
         kcal: sum(dayEntries, "kcal"),
         prot: sum(dayEntries, "prot"),
         carbs: sum(dayEntries, "carbs"),
@@ -189,30 +190,70 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
     });
   }, [historyData, todayEntries, weights, goals]);
 
-  const weeklyTotals = useMemo(() => {
+  // ─── ANALYSE LOGIK ───
+  const analysis = useMemo(() => {
     const trackedDays = chartData.filter(d => d.hasData);
-    if (trackedDays.length === 0) return { total: 0, diff: 0, status: "Keine Daten", days: 0 };
-    const totalKcal = trackedDays.reduce((acc, d) => acc + d.kcal, 0);
-    const goalKcalForPeriod = goals.kcal * trackedDays.length;
-    const diff = Math.round(totalKcal - goalKcalForPeriod);
-    return { total: totalKcal, diff, status: diff <= 0 ? "Defizit" : "Überschuss", days: trackedDays.length };
+    if (trackedDays.length === 0) return null;
+
+    const stats = ["prot", "carbs", "fat", "fiber"].map(macro => {
+      const vals = trackedDays.map(d => (d[macro] / goals[macro]) * 100);
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      // Konsistenz (Standardabweichung): Niedriger ist besser
+      const stdDev = Math.sqrt(vals.map(x => Math.pow(x - avg, 2)).reduce((a, b) => a + b, 0) / vals.length);
+      
+      return { 
+        key: macro, 
+        avg: Math.round(avg), 
+        consistency: Math.max(0, 100 - Math.round(stdDev * 2)), // Score 0-100
+        color: macro === "prot" ? "#16a34a" : macro === "carbs" ? "#d97706" : macro === "fat" ? "#3b82f6" : "#9333ea"
+      };
+    });
+
+    const totalKcal = trackedDays.reduce((s, d) => s + d.kcal, 0);
+    const goalKcal = goals.kcal * trackedDays.length;
+    const kcalReach = Math.round((totalKcal / goalKcal) * 100);
+
+    return { stats, kcalReach, days: trackedDays.length };
   }, [chartData, goals]);
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-stone-900 rounded-3xl p-6 text-white shadow-sm">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-500 mb-1">Summe ({weeklyTotals.days} Tage)</p>
-          <div className="text-2xl font-black">{weeklyTotals.total.toLocaleString()} <span className="text-[10px] text-stone-500">kcal</span></div>
-        </div>
-        <div className={`rounded-3xl p-6 border shadow-sm ${weeklyTotals.days === 0 ? 'bg-stone-50 border-stone-100' : weeklyTotals.diff <= 0 ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-400 mb-1">{weeklyTotals.status}</p>
-          <div className={`text-2xl font-black ${weeklyTotals.days === 0 ? 'text-stone-300' : weeklyTotals.diff <= 0 ? 'text-green-700' : 'text-red-700'}`}>
-            {weeklyTotals.days === 0 ? "--" : (weeklyTotals.diff > 0 ? `+${weeklyTotals.diff}` : weeklyTotals.diff)} <span className="text-[10px] opacity-50">kcal</span>
+      {/* Makro Zielerreichung Cards */}
+      {analysis && (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2 bg-stone-900 rounded-3xl p-6 text-white overflow-hidden relative">
+            <div className="relative z-10">
+              <p className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-500 mb-4">7-Tage Score</p>
+              <div className="flex items-end gap-2">
+                <span className="text-4xl font-black">{analysis.kcalReach}%</span>
+                <span className="text-[10px] text-stone-400 mb-2 uppercase font-bold">Zielerreichung kcal</span>
+              </div>
+            </div>
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
           </div>
-        </div>
-      </div>
 
+          {analysis.stats.map(s => (
+            <div key={s.key} className="bg-white rounded-3xl p-5 border border-stone-100 shadow-sm">
+              <div className="flex justify-between items-start mb-4">
+                <span className="text-[9px] font-black uppercase text-stone-300 tracking-tighter">{s.key}</span>
+                <div className={`w-2 h-2 rounded-full`} style={{ backgroundColor: s.color }} />
+              </div>
+              <div className="text-xl font-black text-stone-800">{s.avg}%</div>
+              <div className="mt-3">
+                <div className="flex justify-between text-[8px] font-black uppercase text-stone-400 mb-1">
+                  <span>Konsistenz</span>
+                  <span>{s.consistency}%</span>
+                </div>
+                <div className="h-1 bg-stone-50 rounded-full overflow-hidden">
+                  <div className="h-full rounded-full" style={{ width: `${s.consistency}%`, backgroundColor: s.color }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Charts (TDEE & Energie) */}
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
         <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">TDEE Trend</p>
         <div className="h-48 w-full -ml-4">
@@ -254,7 +295,7 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
 }
 
 function WeightView({ weights }) {
-  const [range, setRange] = useState("Tag"); // Tag, Woche, Monat, Quartal
+  const [range, setRange] = useState("Tag");
 
   const processedData = useMemo(() => {
     if (!weights.length) return [];
@@ -268,11 +309,8 @@ function WeightView({ weights }) {
 
     const startDate = new Date();
     startDate.setDate(now.getDate() - daysToLookBack);
-
-    // Filtern
     const filtered = weights.filter(w => new Date(w.date) >= startDate);
 
-    // Gruppieren
     const groups = {};
     filtered.forEach(w => {
       const d = new Date(w.date);
@@ -288,7 +326,6 @@ function WeightView({ weights }) {
           const q = Math.floor(d.getMonth() / 3) + 1;
           key = `Q${q} ${d.getFullYear().toString().slice(-2)}`;
       }
-
       if (!groups[key]) groups[key] = { label: key, sum: 0, count: 0 };
       groups[key].sum += w.val;
       groups[key].count += 1;
@@ -309,12 +346,7 @@ function WeightView({ weights }) {
           </button>
         ))}
       </div>
-
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <div className="flex justify-between items-baseline mb-6">
-          <p className="text-[10px] font-black uppercase tracking-widest text-stone-300">Gewichtsverlauf</p>
-          <p className="text-xs font-black text-stone-900">{range}s-Ø</p>
-        </div>
         <div className="h-64 w-full -ml-4">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={processedData}>
@@ -325,17 +357,6 @@ function WeightView({ weights }) {
               <Line type="monotone" dataKey="val" stroke="#1c1c1e" strokeWidth={4} dot={{ r: 4, fill: "#1c1c1e", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white rounded-3xl p-5 border border-stone-100">
-           <p className="text-[9px] font-black text-stone-300 uppercase mb-1">Start</p>
-           <p className="text-lg font-black">{weights[0]?.val || "--"} <span className="text-xs text-stone-300">kg</span></p>
-        </div>
-        <div className="bg-white rounded-3xl p-5 border border-stone-100">
-           <p className="text-[9px] font-black text-stone-300 uppercase mb-1">Aktuell</p>
-           <p className="text-lg font-black">{weights[weights.length-1]?.val || "--"} <span className="text-xs text-stone-300">kg</span></p>
         </div>
       </div>
     </div>
