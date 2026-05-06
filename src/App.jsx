@@ -27,6 +27,11 @@ const DEFAULT_GOALS = { kcal: 2000, prot: 150, carbs: 250, fat: 70, fiber: 30 };
 const sum = (arr, key) => Math.round(arr.reduce((s, i) => s + (Number(i[key]) || 0), 0) * 10) / 10;
 const num = (v) => v === "" ? 0 : parseFloat(String(v).replace(",", ".")) || 0;
 
+// Kalkuliert Gesamtkalorien basierend auf Makronährstoffen (wissenschaftliche Standards)
+const calcKcalFromMacros = (g) => {
+  return Math.round(num(g.prot) * 4 + num(g.carbs) * 4 + num(g.fat) * 9 + num(g.fiber) * 2);
+};
+
 const getMovingAverage = (data, windowSize = 7) => {
   return data.map((point, index) => {
     const start = Math.max(0, index - windowSize + 1);
@@ -85,7 +90,6 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
 
   return (
     <div className="space-y-6">
-      {/* GEWICHT LOGGING HEADER */}
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm flex justify-between items-center">
         <div>
           <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-1">Gewicht heute</p>
@@ -97,7 +101,6 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
         </div>
       </div>
 
-      {/* STATS OVERVIEW */}
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm space-y-5">
         <StatBar label="Kalorien" value={t.kcal} max={goals.kcal} unit="kcal" accent="#1c1c1e" />
         <div className="grid grid-cols-2 gap-x-6 gap-y-4">
@@ -108,7 +111,6 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
         </div>
       </div>
 
-      {/* MEAL CATEGORIES */}
       <div className="space-y-3">
         {MEAL_TYPES.map(type => {
           const typeEntries = entries.filter(e => e.type === type);
@@ -167,7 +169,6 @@ function TodayView({ entries, goals, weights, addEntry, removeEntry, addWeight, 
 function WeightView({ weights, removeWeight }) {
   const sorted = [...weights].sort((a, b) => new Date(a.date) - new Date(b.date));
   const dataWithAvg = getMovingAverage(sorted, 7);
-  const currentAvg = dataWithAvg.length > 0 ? dataWithAvg[dataWithAvg.length - 1].avg : 0;
 
   return (
     <div className="space-y-6">
@@ -186,18 +187,6 @@ function WeightView({ weights, removeWeight }) {
             </ResponsiveContainer>
           </div>
         ) : <div className="h-48 flex items-center justify-center text-stone-300 text-xs italic bg-stone-50 rounded-2xl border-2 border-dashed border-stone-100">Mind. 2 Logs nötig...</div>}
-      </div>
-
-      <div className="space-y-2">
-        {[...weights].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0, 10).map((w, i) => (
-          <div key={i} className="bg-white rounded-2xl px-5 py-4 border border-stone-50 flex justify-between items-center">
-            <div>
-              <div className="text-sm font-black text-stone-800">{w.val} kg</div>
-              <div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">{fmtDate(w.date)}</div>
-            </div>
-            <button onClick={() => removeWeight(w.date)} className="text-stone-200 hover:text-red-400 px-2">✕</button>
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -302,6 +291,13 @@ export default function App() {
     flash(`Gewicht: ${v}kg`);
   };
 
+  // Synchronisiert Kalorienziel automatisch bei Änderung der Makro-Ziele
+  const updateGoals = (newGoals) => {
+    const withKcal = { ...newGoals, kcal: calcKcalFromMacros(newGoals) };
+    setGoals(withKcal);
+    DB.set("goals", withKcal);
+  };
+
   const TABS = [
     { id: "today", label: "Tracker", icon: <Icon.Today /> },
     { id: "history", label: "Trends", icon: <Icon.History /> },
@@ -350,10 +346,23 @@ export default function App() {
         )}
         {tab === "goals" && (
           <div className="bg-white rounded-3xl p-8 border border-stone-50 shadow-sm space-y-6">
-            {Object.keys(goals).map(k => (
+            <div className="bg-stone-900 rounded-2xl p-6 text-white mb-4">
+              <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-1">Berechnetes Ziel</p>
+              <div className="text-3xl font-black">{goals.kcal} <span className="text-xs font-medium text-stone-500 uppercase tracking-normal">kcal / Tag</span></div>
+              <p className="text-[9px] font-bold text-stone-500 mt-2 leading-relaxed">Kalorien werden automatisch aus Makro-Eingaben kalkuliert.</p>
+            </div>
+            
+            {["prot", "carbs", "fat", "fiber"].map(k => (
               <div key={k}>
-                <label className="text-[10px] font-black uppercase text-stone-400 mb-2 block">{k}</label>
-                <input value={goals[k]} type="number" className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-sm font-bold outline-none" onChange={e => { const g = {...goals, [k]: num(e.target.value)}; setGoals(g); DB.set("goals", g); }} />
+                <label className="text-[10px] font-black uppercase text-stone-400 mb-2 block">
+                  {k === "prot" ? "Protein (g)" : k === "carbs" ? "Kohlenhydrate (g)" : k === "fat" ? "Fette (g)" : "Ballaststoffe (g)"}
+                </label>
+                <input 
+                  value={goals[k]} 
+                  type="number" 
+                  className="w-full bg-stone-50 border-none rounded-2xl px-4 py-3 text-sm font-bold outline-none ring-1 ring-stone-100 focus:ring-stone-300 transition-all" 
+                  onChange={e => updateGoals({...goals, [k]: e.target.value})} 
+                />
               </div>
             ))}
           </div>
@@ -364,14 +373,14 @@ export default function App() {
         <div className="flex justify-between items-center max-w-sm mx-auto">
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)} className={`flex flex-col items-center gap-1.5 transition-all ${tab === t.id ? "text-stone-900" : "text-stone-300"}`}>
-              <div className={`p-2.5 rounded-2xl ${tab === t.id ? "bg-stone-900 text-white" : ""}`}>{t.icon}</div>
+              <div className={`p-2.5 rounded-2xl ${tab === t.id ? "bg-stone-900 text-white shadow-lg" : ""}`}>{t.icon}</div>
               <span className={`text-[8px] font-black uppercase tracking-widest ${tab === t.id ? "opacity-100" : "opacity-0"}`}>{t.label}</span>
             </button>
           ))}
         </div>
       </nav>
 
-      {toast && <div className="fixed bottom-32 left-1/2 -translate-x-1/2 bg-stone-900 text-white text-[10px] font-black uppercase tracking-[0.2em] px-8 py-3 rounded-full z-50">{toast}</div>}
+      {toast && <div className="fixed bottom-32 left-1/2 -translate-x-1/2 bg-stone-900 text-white text-[10px] font-black uppercase tracking-[0.2em] px-8 py-3 rounded-full z-50 shadow-2xl animate-in fade-in zoom-in-95">{toast}</div>}
     </div>
   );
 }
