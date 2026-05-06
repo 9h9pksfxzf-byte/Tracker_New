@@ -44,6 +44,7 @@ const Icon = {
   Today: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2" /></svg>,
   History: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg>,
   Weight: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m11 2 9 22M13 2l-9 22M2 2h20"/></svg>,
+  Database: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5M3 12a9 3 0 0 0 18 0"/></svg>,
   Goal: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
 };
 
@@ -88,10 +89,7 @@ function TodayView({ entries, goals, weights, selectedDate, addEntry, removeEntr
       </div>
 
       <div className="bg-white rounded-3xl p-5 border border-stone-100 shadow-sm flex items-center justify-between">
-        <div>
-          <p className="text-[9px] font-black uppercase tracking-widest text-stone-300">Tagesgewicht</p>
-          <div className="text-xl font-black text-stone-800">{currentWeight ? `${currentWeight} kg` : "--"}</div>
-        </div>
+        <div><p className="text-[9px] font-black uppercase tracking-widest text-stone-300">Tagesgewicht</p><div className="text-xl font-black text-stone-800">{currentWeight ? `${currentWeight} kg` : "--"}</div></div>
         <div className="flex gap-2">
           <input type="number" step="0.1" value={wInput} onChange={e => setWInput(e.target.value)} placeholder="0.0" className="w-16 bg-stone-50 rounded-xl px-3 py-2 text-xs font-bold outline-none text-center" />
           <button onClick={() => { if(wInput) { addWeight(num(wInput)); setWInput(""); } }} className="bg-stone-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase">Log</button>
@@ -175,19 +173,15 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
       <div className="grid grid-cols-2 gap-4">
         {analysis?.map(s => (
           <div key={s.key} className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[10px] font-black uppercase text-stone-300 tracking-widest">{s.key}</span>
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
-            </div>
+            <div className="flex justify-between items-center mb-2"><span className="text-[10px] font-black uppercase text-stone-300 tracking-widest">{s.key}</span><div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} /></div>
             <div className="text-3xl font-black text-stone-800 mb-4">{s.avg}%</div>
             <div className="flex justify-between text-[9px] font-black uppercase text-stone-400 mb-1.5"><span>Adhärenz</span><span>{s.consistency}%</span></div>
             <div className="h-1.5 bg-stone-50 rounded-full overflow-hidden"><div className="h-full rounded-full transition-all duration-1000" style={{ width: `${s.consistency}%`, backgroundColor: s.color }} /></div>
           </div>
         ))}
       </div>
-
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6 text-center">Geschätzter Bedarf (TDEE Trend)</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6 text-center">TDEE Trend</p>
         <div className="h-56 w-full -ml-4">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData}>
@@ -201,22 +195,45 @@ function HistoryView({ historyData, todayEntries, goals, weights }) {
           </ResponsiveContainer>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6 text-center">Energieaufnahme (7 Tage)</p>
-        <div className="h-56 w-full -ml-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
-              <XAxis dataKey="label" tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} />
-              <YAxis hide domain={[0, 'dataMax + 500']} />
-              <Tooltip cursor={{fill: '#f5f5f4', radius: 12}} contentStyle={{ borderRadius: '20px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-              <Bar dataKey="kcal" radius={[10, 10, 10, 10]} barSize={32}>
-                {chartData.map((e, i) => <Cell key={i} fill={!e.hasData ? "#f5f5f4" : e.kcal > goals.kcal + 200 ? "#fca5a5" : "#1c1c1e"} />)}
-              </Bar>
-              <ReferenceLine y={goals.kcal} stroke="#fca5a5" strokeDasharray="4 4" />
-            </BarChart>
-          </ResponsiveContainer>
+function DatabaseView({ favs, addEntry, removeFav, selectedDate }) {
+  const [query, setQuery] = useState("");
+  const [form, setForm] = useState(EMPTY_ENTRY);
+  const filtered = favs.filter(f => f.desc.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-500">
+      <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm space-y-4">
+        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300">Neuer Favorit</p>
+        <input value={form.desc} onChange={e => setForm({...form, desc: e.target.value})} placeholder="Name des Lebensmittels" className="w-full bg-stone-50 rounded-2xl px-4 py-3 text-[13px] outline-none font-bold" />
+        <div className="grid grid-cols-5 gap-1.5">
+          {["kcal", "prot", "carbs", "fat", "fiber"].map(k => (
+            <input key={k} value={form[k]} type="number" placeholder={k} onChange={e => setForm({...form, [k]: e.target.value})} className="bg-stone-50 rounded-xl py-2 text-center text-[10px] outline-none font-bold" />
+          ))}
         </div>
+        <button onClick={() => { if(form.desc) { removeFav(-1, form); setForm(EMPTY_ENTRY); } }} className="w-full text-white font-black py-3 rounded-2xl text-[10px] uppercase bg-stone-900 shadow-lg shadow-stone-100">Favorit Speichern</button>
+      </div>
+
+      <div className="relative">
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Datenbank durchsuchen..." className="w-full bg-white rounded-2xl px-6 py-4 text-sm font-bold border border-stone-100 outline-none shadow-sm" />
+      </div>
+
+      <div className="space-y-2">
+        {filtered.map((f, i) => (
+          <div key={i} className="bg-white rounded-2xl p-4 border border-stone-50 flex justify-between items-center group">
+            <div className="flex-1">
+              <div className="text-[13px] font-bold text-stone-800">{f.desc}</div>
+              <div className="text-[10px] font-bold text-stone-400 uppercase tracking-tighter">{f.kcal} kcal · {f.prot}P · {f.carbs}C · {f.fiber}B</div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => addEntry({...f, type: "Snack"})} className="bg-stone-50 hover:bg-stone-100 text-stone-900 px-3 py-2 rounded-xl text-[10px] font-black uppercase transition-all">Log</button>
+              <button onClick={() => removeFav(i)} className="text-stone-200 hover:text-red-400 px-2 text-xs">✕</button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -272,14 +289,15 @@ export default function App() {
   const [entries, setEntries] = useState([]);
   const [goals, setGoals] = useState(DEFAULT_GOALS);
   const [weights, setWeights] = useState([]);
+  const [favs, setFavs] = useState([]);
   const [histData, setHistData] = useState({});
   const [ready, setReady] = useState(false);
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
     async function init() {
-      const [g, w, hi] = await Promise.all([DB.get("goals"), DB.get("weights"), DB.get("hist-index")]);
-      if (g) setGoals(g); setWeights(w || []);
+      const [g, w, f, hi] = await Promise.all([DB.get("goals"), DB.get("weights"), DB.get("favs"), DB.get("hist-index")]);
+      if (g) setGoals(g); setWeights(w || []); setFavs(f || []);
       if (hi) {
         const hd = {};
         for (const k of hi.slice(-30)) { const d = await DB.get(`day-${k}`); if (d) hd[k] = d; }
@@ -299,6 +317,13 @@ export default function App() {
     setHistData(prev => ({...prev, [date]: updated}));
   };
 
+  const handleFav = async (idx, item) => {
+    let next;
+    if (idx === -1) next = [...favs, item];
+    else next = favs.filter((_, i) => i !== idx);
+    setFavs(next); await DB.set("favs", next);
+  };
+
   const addWeight = async (v) => {
     const updated = [...weights.filter(w => w.date !== selectedDate), { date: selectedDate, val: v }].sort((a,b)=>new Date(a.date)-new Date(b.date));
     setWeights(updated); await DB.set("weights", updated);
@@ -311,18 +336,19 @@ export default function App() {
     <div className="min-h-screen bg-[#fafaf9] text-stone-900 pb-32 font-sans antialiased">
       <header className="px-8 pt-16 pb-8 flex justify-between items-end max-w-lg mx-auto">
         <h1 className="text-4xl font-black tracking-tighter text-stone-900 capitalize">{tab}</h1>
-        <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="bg-stone-100 rounded-xl px-3 py-2 text-[10px] font-black outline-none border-none focus:ring-2 focus:ring-stone-200" />
+        <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="bg-stone-100 rounded-xl px-3 py-2 text-[10px] font-black outline-none border-none" />
       </header>
 
       <main className="px-6 max-w-lg mx-auto">
         {tab === "today" && <TodayView entries={entries} goals={goals} weights={weights} selectedDate={selectedDate} addEntry={(i) => saveToDB(selectedDate, [...entries, i])} removeEntry={(idx) => saveToDB(selectedDate, entries.filter((_, i) => i !== idx))} updateEntry={(idx, item) => { const n = [...entries]; n[idx] = item; saveToDB(selectedDate, n); }} addWeight={addWeight} />}
         {tab === "history" && <HistoryView historyData={histData} todayEntries={entries} goals={goals} weights={weights} />}
         {tab === "weight" && <WeightView weights={weights} />}
+        {tab === "database" && <DatabaseView favs={favs} addEntry={(i) => saveToDB(selectedDate, [...entries, i])} removeFav={handleFav} selectedDate={selectedDate} />}
         {tab === "goals" && (
           <div className="bg-white rounded-3xl p-8 border border-stone-100 space-y-6 shadow-sm">
             {["prot", "carbs", "fat", "fiber"].map(k => (
               <div key={k}><label className="text-[10px] font-black uppercase text-stone-400 mb-2 block tracking-widest">{k} Ziel (g)</label>
-                <input value={goals[k]} type="number" className="w-full bg-stone-50 rounded-2xl px-4 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-stone-200" onChange={e => { const g = {...goals, [k]: e.target.value}; g.kcal = calcKcalFromMacros(g); setGoals(g); DB.set("goals", g); }} />
+                <input value={goals[k]} type="number" className="w-full bg-stone-50 rounded-2xl px-4 py-4 text-sm font-bold outline-none" onChange={e => { const g = {...goals, [k]: e.target.value}; g.kcal = calcKcalFromMacros(g); setGoals(g); DB.set("goals", g); }} />
               </div>
             ))}
             <div className="pt-6 border-t border-stone-50"><p className="text-[10px] font-black uppercase text-stone-400 mb-1 tracking-widest">Berechnetes Ziel</p><p className="text-3xl font-black text-stone-900">{goals.kcal} kcal</p></div>
@@ -332,12 +358,12 @@ export default function App() {
 
       <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-3xl border-t border-stone-100 px-8 pt-4 pb-10 z-50">
         <div className="flex justify-between items-center max-w-sm mx-auto">
-          {[{id:"today", i:<Icon.Today />}, {id:"history", i:<Icon.History />}, {id:"weight", i:<Icon.Weight />}, {id:"goals", i:<Icon.Goal />}].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`p-4 rounded-2xl transition-all ${tab === t.id ? "bg-stone-900 text-white shadow-xl scale-110" : "text-stone-300 hover:text-stone-500"}`}>{t.i}</button>
+          {[{id:"today", i:<Icon.Today />}, {id:"history", i:<Icon.History />}, {id:"database", i:<Icon.Database />}, {id:"weight", i:<Icon.Weight />}, {id:"goals", i:<Icon.Goal />}].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} className={`p-4 rounded-2xl transition-all ${tab === t.id ? "bg-stone-900 text-white shadow-xl scale-110" : "text-stone-300"}`}>{t.i}</button>
           ))}
         </div>
       </nav>
-      {toast && <div className="fixed bottom-32 left-1/2 -translate-x-1/2 bg-stone-900 text-white text-[10px] font-black uppercase px-8 py-3 rounded-full z-50 shadow-2xl animate-in fade-in zoom-in duration-300">{toast}</div>}
+      {toast && <div className="fixed bottom-32 left-1/2 -translate-x-1/2 bg-stone-900 text-white text-[10px] font-black uppercase px-8 py-3 rounded-full z-50 shadow-2xl">{toast}</div>}
     </div>
   );
 }
