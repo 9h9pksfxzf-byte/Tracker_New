@@ -39,27 +39,6 @@ const calcKcalFromMacros = (g) => {
   return Math.round(num(g.prot) * 4 + num(g.carbs) * 4 + num(g.fat) * 9 + num(g.fiber) * 2);
 };
 
-const calculateTDEE = (weights, history, days = 21) => {
-  const sortedWeights = [...weights].sort((a, b) => new Date(a.date) - new Date(b.date));
-  if (sortedWeights.length < 5) return null;
-  const now = new Date();
-  const startLimit = new Date();
-  startLimit.setDate(now.getDate() - days);
-  const relevantWeights = sortedWeights.filter(w => new Date(w.date) >= startLimit);
-  if (relevantWeights.length < 3) return null;
-  const weightDiff = relevantWeights[relevantWeights.length - 1].val - relevantWeights[0].val;
-  const daySpan = (new Date(relevantWeights[relevantWeights.length - 1].date) - new Date(relevantWeights[0].date)) / 86400000;
-  let totalKcal = 0, loggedDays = 0;
-  Object.keys(history).forEach(d => {
-    if (new Date(d) >= new Date(relevantWeights[0].date)) {
-      const dailyKcal = sum(history[d], "kcal");
-      if (dailyKcal > 800) { totalKcal += dailyKcal; loggedDays++; }
-    }
-  });
-  if (loggedDays < daySpan * 0.7) return null;
-  return Math.round((totalKcal / loggedDays) - ((weightDiff * 7700) / daySpan));
-};
-
 // ─── ICONS ──────────────────────────────────────────────────────────────────
 const Icon = {
   Today: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>,
@@ -85,10 +64,13 @@ function StatBar({ label, value, max, accent }) {
   );
 }
 
-function TodayView({ entries, goals, addEntry, removeEntry, updateEntry, saveFav }) {
+function TodayView({ entries, goals, weights, selectedDate, addEntry, removeEntry, updateEntry, saveFav, addWeight }) {
   const [activeType, setActiveType] = useState(null);
   const [form, setForm] = useState(EMPTY_ENTRY);
   const [editingIdx, setEditingIdx] = useState(null);
+  const [wInput, setWInput] = useState("");
+
+  const currentWeight = weights.find(w => w.date === selectedDate)?.val;
 
   const handleLog = (type) => {
     if (!form.desc) return;
@@ -102,6 +84,7 @@ function TodayView({ entries, goals, addEntry, removeEntry, updateEntry, saveFav
 
   return (
     <div className="space-y-6">
+      {/* Makro Stats Card */}
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm space-y-5">
         <StatBar label="Kalorien" value={totals.kcal} max={goals.kcal} accent="#1c1c1e" />
         <div className="grid grid-cols-2 gap-x-6 gap-y-4">
@@ -112,6 +95,22 @@ function TodayView({ entries, goals, addEntry, removeEntry, updateEntry, saveFav
         </div>
       </div>
 
+      {/* Gewichtseingabe direkt auf Hauptseite */}
+      <div className="bg-white rounded-3xl p-5 border border-stone-100 shadow-sm flex items-center justify-between">
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-widest text-stone-300">Gewicht</p>
+          <div className="text-xl font-black text-stone-800">{currentWeight ? `${currentWeight} kg` : "--"}</div>
+        </div>
+        <div className="flex gap-2">
+          <input 
+            type="number" step="0.1" value={wInput} onChange={e => setWInput(e.target.value)}
+            placeholder="0.0" className="w-16 bg-stone-50 rounded-xl px-3 py-2 text-xs font-bold outline-none text-center"
+          />
+          <button onClick={() => { if(wInput) { addWeight(num(wInput)); setWInput(""); } }} className="bg-stone-900 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase">Log</button>
+        </div>
+      </div>
+
+      {/* Mahlzeiten-Liste */}
       <div className="space-y-3">
         {MEAL_TYPES.map(type => {
           const typeEntries = entries.map((e, idx) => ({ ...e, originalIndex: idx })).filter(e => e.type === type);
@@ -162,27 +161,44 @@ function TodayView({ entries, goals, addEntry, removeEntry, updateEntry, saveFav
 function HistoryView({ historyData, todayEntries, goals }) {
   const chartData = useMemo(() => {
     const all = { ...historyData, [todayKey()]: todayEntries };
-    return Object.keys(all).slice(-7).map(d => ({
-      label: fmtDate(d),
-      kcal: sum(all[d], "kcal"), prot: sum(all[d], "prot"), carbs: sum(all[d], "carbs"), fat: sum(all[d], "fat"), fiber: sum(all[d], "fiber")
-    }));
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const key = d.toISOString().split("T")[0];
+      const dayEntries = all[key] || [];
+      days.push({
+        label: fmtDate(key), kcal: sum(dayEntries, "kcal"),
+        prot: sum(dayEntries, "prot"), carbs: sum(dayEntries, "carbs"), 
+        fat: sum(dayEntries, "fat"), fiber: sum(dayEntries, "fiber")
+      });
+    }
+    return days;
   }, [historyData, todayEntries]);
 
-  const avgPerf = useMemo(() => {
-    if (!chartData.length) return {};
-    const getAvg = (k) => chartData.reduce((a, b) => a + b[k], 0) / chartData.length;
-    return {
-      prot: Math.round((getAvg("prot") / goals.prot) * 100),
-      carbs: Math.round((getAvg("carbs") / goals.carbs) * 100),
-      fat: Math.round((getAvg("fat") / goals.fat) * 100),
-      fiber: Math.round((getAvg("fiber") / goals.fiber) * 100)
-    };
+  const weeklyTotals = useMemo(() => {
+    const totalKcal = chartData.reduce((acc, d) => acc + d.kcal, 0);
+    const goalKcal = goals.kcal * 7;
+    const diff = totalKcal - goalKcal;
+    return { total: totalKcal, diff, status: diff <= 0 ? "Defizit" : "Überschuss" };
   }, [chartData, goals]);
 
   return (
     <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-stone-900 rounded-3xl p-6 text-white shadow-sm">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-500 mb-1">Wochen-Gesamt</p>
+          <div className="text-2xl font-black">{weeklyTotals.total.toLocaleString()} <span className="text-[10px] text-stone-500">kcal</span></div>
+        </div>
+        <div className={`rounded-3xl p-6 border shadow-sm ${weeklyTotals.diff <= 0 ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-400 mb-1">{weeklyTotals.status}</p>
+          <div className={`text-2xl font-black ${weeklyTotals.diff <= 0 ? 'text-green-700' : 'text-red-700'}`}>
+            {weeklyTotals.diff > 0 ? `+${weeklyTotals.diff}` : weeklyTotals.diff} <span className="text-[10px] opacity-50">kcal</span>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Energie Trend (kcal)</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">7-Tage Energie</p>
         <div className="h-48 w-full -ml-4">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>
@@ -196,21 +212,8 @@ function HistoryView({ historyData, todayEntries, goals }) {
           </ResponsiveContainer>
         </div>
       </div>
-
-      <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Makro-Erfüllung (7-Tage Ø)</p>
-        <div className="grid grid-cols-2 gap-6">
-          {[{k:"prot", l:"Protein", c:"#16a34a"}, {k:"carbs", l:"Carbs", c:"#d97706"}, {k:"fat", l:"Fett", c:"#3b82f6"}, {k:"fiber", l:"Fiber", c:"#9333ea"}].map(m => (
-            <div key={m.k} className="space-y-2">
-              <div className="flex justify-between text-[10px] font-black uppercase"><span>{m.l}</span><span className="text-stone-400">{avgPerf[m.k]}%</span></div>
-              <div className="h-1.5 bg-stone-100 rounded-full overflow-hidden">
-                <div style={{ width: `${Math.min(avgPerf[m.k], 100)}%`, backgroundColor: m.c }} className="h-full rounded-full transition-all duration-1000" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
+      
+      {/* Makro-Zusammensetzung Chart */}
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
         <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Zusammensetzung (g)</p>
         <div className="h-56 w-full -ml-4">
@@ -262,17 +265,23 @@ export default function App() {
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2000); };
 
   const saveToDB = async (date, updated) => {
-    setEntries(updated);
-    await DB.set(`day-${date}`, updated);
+    setEntries(updated); await DB.set(`day-${date}`, updated);
     const hi = await DB.get("hist-index") || [];
     if (!hi.includes(date)) await DB.set("hist-index", [...hi, date]);
+  };
+
+  const addWeight = async (v) => {
+    const filtered = weights.filter(w => w.date !== selectedDate);
+    const updated = [...filtered, { date: selectedDate, val: v }].sort((a,b)=>new Date(a.date)-new Date(b.date));
+    setWeights(updated); await DB.set("weights", updated);
+    flash(`${v} kg geloggt`);
   };
 
   const addEntry = (item) => { saveToDB(selectedDate, [...entries, item]); flash("Log gespeichert"); };
   const removeEntry = (idx) => saveToDB(selectedDate, entries.filter((_, i) => i !== idx));
   const updateEntry = (idx, item) => {
     const next = [...entries]; next[idx] = item;
-    saveToDB(selectedDate, next); flash("Eintrag aktualisiert");
+    saveToDB(selectedDate, next); flash("Aktualisiert");
   };
 
   if (!ready) return null;
@@ -285,12 +294,58 @@ export default function App() {
       </header>
 
       <main className="px-6 max-w-lg mx-auto">
-        {tab === "today" && <TodayView entries={entries} goals={goals} addEntry={addEntry} removeEntry={removeEntry} updateEntry={updateEntry} saveFav={f => { setFavs([...favs, f]); DB.set("favs", [...favs, f]); flash("Favorit ★"); }} />}
+        {tab === "today" && (
+          <TodayView 
+            entries={entries} goals={goals} weights={weights} selectedDate={selectedDate}
+            addEntry={addEntry} removeEntry={removeEntry} updateEntry={updateEntry} addWeight={addWeight}
+            saveFav={f => { const u = [...favs, f]; setFavs(u); DB.set("favs", u); flash("Favorit ★"); }} 
+          />
+        )}
         {tab === "history" && <HistoryView historyData={histData} todayEntries={entries} goals={goals} />}
         {tab === "weight" && (
           <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
-             <p className="text-[10px] font-black uppercase text-stone-300 mb-4">Wissenschaftlicher TDEE</p>
-             <div className="text-3xl font-black">{calculateTDEE(weights, histData) || "---"} <span className="text-sm font-medium text-stone-300 uppercase">kcal</span></div>
+             <p className="text-[10px] font-black uppercase text-stone-300 mb-4">Gewichtshistorie</p>
+             <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={weights.slice(-14)}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f5f5f4" />
+                    <XAxis dataKey="date" tickFormatter={fmtDate} tick={{fontSize: 9, fill: '#d6d3d1'}} axisLine={false} />
+                    <YAxis domain={['dataMin - 1', 'dataMax + 1']} tick={{fontSize: 9, fill: '#d6d3d1'}} axisLine={false} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="val" stroke="#1c1c1e" strokeWidth={3} dot={{ r: 4, fill: "#1c1c1e" }} />
+                  </LineChart>
+                </ResponsiveContainer>
+             </div>
+          </div>
+        )}
+        {tab === "favs" && (
+          <div className="space-y-3">
+            {favs.map((f, i) => (
+              <div key={i} className="bg-white rounded-3xl p-5 border border-stone-50 flex justify-between items-center">
+                <div className="flex-1 min-w-0 mr-4">
+                  <div className="text-sm font-black truncate">{f.desc}</div>
+                  <div className="text-[10px] font-bold text-stone-300 uppercase">{f.kcal} kcal | {f.prot}P | {f.fiber}B</div>
+                </div>
+                <div className="flex gap-1">
+                  {MEAL_TYPES.map(t => <button key={t} onClick={() => addEntry({...f, type: t})} className="bg-stone-50 text-[8px] font-black p-2 rounded-lg hover:bg-stone-900 hover:text-white">{t[0]}</button>)}
+                  <button onClick={() => { const u = favs.filter((_, idx)=>idx!==i); setFavs(u); DB.set("favs", u); }} className="text-stone-200 ml-2">✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {tab === "goals" && (
+          <div className="bg-white rounded-3xl p-8 border border-stone-100 shadow-sm space-y-6">
+            {["prot", "carbs", "fat", "fiber"].map(k => (
+              <div key={k}>
+                <label className="text-[10px] font-black uppercase text-stone-400 mb-2 block">{k}</label>
+                <input value={goals[k]} type="number" className="w-full bg-stone-50 rounded-2xl px-4 py-3 text-sm font-bold outline-none" onChange={e => {
+                  const g = {...goals, [k]: e.target.value}; g.kcal = calcKcalFromMacros(g);
+                  setGoals(g); DB.set("goals", g);
+                }} />
+              </div>
+            ))}
+            <div className="pt-4 border-t border-stone-50"><p className="text-[10px] font-black uppercase text-stone-400 mb-1">Ziel</p><p className="text-2xl font-black text-stone-900">{goals.kcal} kcal</p></div>
           </div>
         )}
       </main>
@@ -298,7 +353,7 @@ export default function App() {
       <nav className="fixed bottom-0 left-0 right-0 bg-white/70 backdrop-blur-3xl border-t border-stone-100 px-8 pt-4 pb-10 z-50">
         <div className="flex justify-between items-center max-w-sm mx-auto">
           {[{id:"today", i:<Icon.Today />}, {id:"history", i:<Icon.History />}, {id:"weight", i:<Icon.Weight />}, {id:"favs", i:<Icon.Database />}, {id:"goals", i:<Icon.Goal />}].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} className={`p-3 rounded-2xl transition-all ${tab === t.id ? "bg-stone-900 text-white" : "text-stone-300"}`}>{t.i}</button>
+            <button key={t.id} onClick={() => setTab(t.id)} className={`p-3 rounded-2xl transition-all ${tab === t.id ? "bg-stone-900 text-white shadow-lg" : "text-stone-300"}`}>{t.i}</button>
           ))}
         </div>
       </nav>
