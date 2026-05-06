@@ -84,7 +84,6 @@ function TodayView({ entries, goals, weights, selectedDate, addEntry, removeEntr
 
   return (
     <div className="space-y-6">
-      {/* Makro Stats Card */}
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm space-y-5">
         <StatBar label="Kalorien" value={totals.kcal} max={goals.kcal} accent="#1c1c1e" />
         <div className="grid grid-cols-2 gap-x-6 gap-y-4">
@@ -95,7 +94,6 @@ function TodayView({ entries, goals, weights, selectedDate, addEntry, removeEntr
         </div>
       </div>
 
-      {/* Gewichtseingabe direkt auf Hauptseite */}
       <div className="bg-white rounded-3xl p-5 border border-stone-100 shadow-sm flex items-center justify-between">
         <div>
           <p className="text-[9px] font-black uppercase tracking-widest text-stone-300">Gewicht</p>
@@ -110,7 +108,6 @@ function TodayView({ entries, goals, weights, selectedDate, addEntry, removeEntr
         </div>
       </div>
 
-      {/* Mahlzeiten-Liste */}
       <div className="space-y-3">
         {MEAL_TYPES.map(type => {
           const typeEntries = entries.map((e, idx) => ({ ...e, originalIndex: idx })).filter(e => e.type === type);
@@ -167,32 +164,46 @@ function HistoryView({ historyData, todayEntries, goals }) {
       const key = d.toISOString().split("T")[0];
       const dayEntries = all[key] || [];
       days.push({
-        label: fmtDate(key), kcal: sum(dayEntries, "kcal"),
-        prot: sum(dayEntries, "prot"), carbs: sum(dayEntries, "carbs"), 
-        fat: sum(dayEntries, "fat"), fiber: sum(dayEntries, "fiber")
+        label: fmtDate(key),
+        kcal: sum(dayEntries, "kcal"),
+        prot: sum(dayEntries, "prot"),
+        carbs: sum(dayEntries, "carbs"),
+        fat: sum(dayEntries, "fat"),
+        fiber: sum(dayEntries, "fiber"),
+        hasData: dayEntries.length > 0
       });
     }
     return days;
   }, [historyData, todayEntries]);
 
   const weeklyTotals = useMemo(() => {
-    const totalKcal = chartData.reduce((acc, d) => acc + d.kcal, 0);
-    const goalKcal = goals.kcal * 7;
-    const diff = totalKcal - goalKcal;
-    return { total: totalKcal, diff, status: diff <= 0 ? "Defizit" : "Überschuss" };
+    // Nur Tage zählen, die Einträge haben
+    const trackedDays = chartData.filter(d => d.hasData);
+    if (trackedDays.length === 0) return { total: 0, diff: 0, status: "Keine Daten", days: 0 };
+
+    const totalKcal = trackedDays.reduce((acc, d) => acc + d.kcal, 0);
+    const goalKcalForPeriod = goals.kcal * trackedDays.length;
+    const diff = Math.round(totalKcal - goalKcalForPeriod);
+
+    return { 
+      total: totalKcal, 
+      diff, 
+      status: diff <= 0 ? "Defizit" : "Überschuss",
+      days: trackedDays.length
+    };
   }, [chartData, goals]);
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-stone-900 rounded-3xl p-6 text-white shadow-sm">
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-500 mb-1">Wochen-Gesamt</p>
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-500 mb-1">Summe ({weeklyTotals.days} Tage)</p>
           <div className="text-2xl font-black">{weeklyTotals.total.toLocaleString()} <span className="text-[10px] text-stone-500">kcal</span></div>
         </div>
-        <div className={`rounded-3xl p-6 border shadow-sm ${weeklyTotals.diff <= 0 ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+        <div className={`rounded-3xl p-6 border shadow-sm ${weeklyTotals.days === 0 ? 'bg-stone-50 border-stone-100' : weeklyTotals.diff <= 0 ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
           <p className="text-[9px] font-black uppercase tracking-[0.2em] text-stone-400 mb-1">{weeklyTotals.status}</p>
-          <div className={`text-2xl font-black ${weeklyTotals.diff <= 0 ? 'text-green-700' : 'text-red-700'}`}>
-            {weeklyTotals.diff > 0 ? `+${weeklyTotals.diff}` : weeklyTotals.diff} <span className="text-[10px] opacity-50">kcal</span>
+          <div className={`text-2xl font-black ${weeklyTotals.days === 0 ? 'text-stone-300' : weeklyTotals.diff <= 0 ? 'text-green-700' : 'text-red-700'}`}>
+            {weeklyTotals.days === 0 ? "--" : (weeklyTotals.diff > 0 ? `+${weeklyTotals.diff}` : weeklyTotals.diff)} <span className="text-[10px] opacity-50">kcal</span>
           </div>
         </div>
       </div>
@@ -205,7 +216,7 @@ function HistoryView({ historyData, todayEntries, goals }) {
               <XAxis dataKey="label" tick={{fontSize: 9, fill: '#d6d3d1', fontWeight: 800}} axisLine={false} tickLine={false} />
               <YAxis hide domain={[0, 'dataMax + 500']} />
               <Bar dataKey="kcal" radius={[6, 6, 6, 6]} barSize={32}>
-                {chartData.map((e, i) => <Cell key={i} fill={e.kcal > goals.kcal ? "#fca5a5" : "#1c1c1e"} />)}
+                {chartData.map((e, i) => <Cell key={i} fill={!e.hasData ? "#f5f5f4" : e.kcal > goals.kcal ? "#fca5a5" : "#1c1c1e"} />)}
               </Bar>
               <ReferenceLine y={goals.kcal} stroke="#fca5a5" strokeDasharray="4 4" />
             </BarChart>
@@ -213,7 +224,6 @@ function HistoryView({ historyData, todayEntries, goals }) {
         </div>
       </div>
       
-      {/* Makro-Zusammensetzung Chart */}
       <div className="bg-white rounded-3xl p-6 border border-stone-100 shadow-sm">
         <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 mb-6">Zusammensetzung (g)</p>
         <div className="h-56 w-full -ml-4">
@@ -268,6 +278,9 @@ export default function App() {
     setEntries(updated); await DB.set(`day-${date}`, updated);
     const hi = await DB.get("hist-index") || [];
     if (!hi.includes(date)) await DB.set("hist-index", [...hi, date]);
+    
+    // Update local histData for charts
+    setHistData(prev => ({...prev, [date]: updated}));
   };
 
   const addWeight = async (v) => {
