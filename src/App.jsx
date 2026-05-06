@@ -127,7 +127,7 @@ function TodayView({ entries, goals, addEntry, removeEntry, onStar }) {
 }
 
 // ─── VIEW: WEIGHT ────────────────────────────────────────────────────────────
-function WeightView({ weights, addWeight, removeWeight }) {
+function WeightView({ weights, addWeight, removeWeight, activeDate }) {
   const [val, setVal] = useState("");
   const sorted = [...weights].sort((a, b) => new Date(a.date) - new Date(b.date));
   const dataWithAvg = getMovingAverage(sorted, 7);
@@ -168,7 +168,7 @@ function WeightView({ weights, addWeight, removeWeight }) {
       </div>
 
       <div className="space-y-2">
-        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 px-1">Historie</p>
+        <p className="text-[10px] font-black uppercase tracking-widest text-stone-300 px-1">Historie (Zuletzt)</p>
         {[...weights].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0, 5).map((w, i) => (
           <div key={i} className="bg-white rounded-2xl px-5 py-4 border border-stone-50 flex justify-between items-center group">
             <div>
@@ -184,7 +184,7 @@ function WeightView({ weights, addWeight, removeWeight }) {
 }
 
 // ─── VIEW: ANALYSE ───────────────────────────────────────────────────────────
-function AnalyseView({ historyData, todayEntries, weights, goals }) {
+function AnalyseView({ historyData, todayEntries, weights, goals, activeDate }) {
   const [view, setView] = useState('month');
   
   const stats = (() => {
@@ -252,7 +252,7 @@ function AnalyseView({ historyData, todayEntries, weights, goals }) {
 
       <div className="space-y-3 pb-10">
         {stats.map((s, i) => (
-          <div key={i} className="bg-white rounded-3xl p-5 border border-stone-50 flex justify-between items-center">
+          <div key={i} className="bg-white rounded-3xl p-5 border border-stone-50 flex justify-between items-center shadow-sm">
             <div>
               <div className="text-sm font-black text-stone-800">{s.label}</div>
               <div className="text-[10px] font-bold text-stone-300 uppercase">{s.count} Tage getrackt</div>
@@ -277,6 +277,7 @@ function AnalyseView({ historyData, todayEntries, weights, goals }) {
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 export default function App() {
   const [tab, setTab] = useState("today");
+  const [selectedDate, setSelectedDate] = useState(todayKey());
   const [entries, setEntries] = useState([]);
   const [goals, setGoals] = useState(DEFAULT_GOALS);
   const [favs, setFavs] = useState([]);
@@ -285,19 +286,22 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [toast, setToast] = useState(null);
 
+  // Initiales Laden
   useEffect(() => {
     async function init() {
-      const today = todayKey();
-      const [e, g, f, w, hi] = await Promise.all([
-        DB.get(`day-${today}`), DB.get("goals"), DB.get("favs"), DB.get("weights"), DB.get("hist-index")
+      const [g, f, w, hi] = await Promise.all([
+        DB.get("goals"), DB.get("favs"), DB.get("weights"), DB.get("hist-index")
       ]);
-      setEntries(e || []);
       setGoals({ ...DEFAULT_GOALS, ...g });
       setFavs(f || []);
       setWeights(w || []);
+      
       if (hi) {
         const hd = {};
-        for (const k of hi) { if (k !== today) { const d = await DB.get(`day-${k}`); if (d) hd[k] = d; } }
+        for (const k of hi) { 
+           const d = await DB.get(`day-${k}`); 
+           if (d) hd[k] = d; 
+        }
         setHistData(hd);
       }
       setReady(true);
@@ -305,14 +309,42 @@ export default function App() {
     init();
   }, []);
 
+  // Daten laden wenn Datum wechselt
+  useEffect(() => {
+    async function loadDay() {
+      const e = await DB.get(`day-${selectedDate}`);
+      setEntries(e || []);
+    }
+    if (ready) loadDay();
+  }, [selectedDate, ready]);
+
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2000); };
 
   const addEntry = async (item) => {
-    const updated = [...entries, item]; setEntries(updated);
-    await DB.set(`day-${todayKey()}`, updated);
+    const updated = [...entries, item]; 
+    setEntries(updated);
+    await DB.set(`day-${selectedDate}`, updated);
+    
     const hi = await DB.get("hist-index") || [];
-    if (!hi.includes(todayKey())) await DB.set("hist-index", [...hi, todayKey()]);
-    flash("Gespeichert ✓");
+    if (!hi.includes(selectedDate)) {
+      const newHi = [...hi, selectedDate];
+      await DB.set("hist-index", newHi);
+    }
+    flash(`Log für ${fmtDate(selectedDate)} ✓`);
+  };
+
+  const removeEntry = async (index) => {
+    const updated = entries.filter((_, i) => i !== index);
+    setEntries(updated);
+    await DB.set(`day-${selectedDate}`, updated);
+  };
+
+  const addWeight = async (v) => {
+    const filtered = weights.filter(w => w.date !== selectedDate);
+    const updated = [...filtered, { date: selectedDate, val: v }];
+    setWeights(updated);
+    await DB.set("weights", updated);
+    flash(`Gewicht für ${fmtDate(selectedDate)}`);
   };
 
   const TABS = [
@@ -327,15 +359,40 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#fafaf8] text-stone-900 pb-32 font-sans antialiased selection:bg-stone-200">
-      <header className="px-8 pt-16 pb-8">
-        <p className="text-[10px] font-black uppercase tracking-[0.4em] text-stone-300 mb-1">Performance Track</p>
-        <h1 className="text-4xl font-black tracking-tighter text-stone-900">{TABS.find(t=>t.id===tab).label}</h1>
+      
+      {/* HEADER WITH DATE PICKER */}
+      <header className="px-8 pt-16 pb-8 flex justify-between items-end max-w-lg mx-auto">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-stone-300 mb-1">Performance Track</p>
+          <h1 className="text-4xl font-black tracking-tighter text-stone-900">{TABS.find(t=>t.id===tab).label}</h1>
+        </div>
+        <div className="flex flex-col items-end">
+          <input 
+            type="date" 
+            value={selectedDate} 
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="bg-stone-100 border-none rounded-xl px-3 py-2 text-[10px] font-black text-stone-600 outline-none focus:ring-2 ring-stone-200"
+          />
+          {selectedDate !== todayKey() && (
+            <button onClick={() => setSelectedDate(todayKey())} className="text-[9px] font-black text-amber-600 mt-2 uppercase tracking-widest animate-pulse">
+              Zu Heute
+            </button>
+          )}
+        </div>
       </header>
 
       <main className="px-6 max-w-lg mx-auto">
-        {tab === "today" && <TodayView entries={entries} goals={goals} addEntry={addEntry} removeEntry={async(i)=>{const u=entries.filter((_,x)=>x!==i); setEntries(u); await DB.set(`day-${todayKey()}`,u);}} onStar={async(f)=>{setFavs([...favs,f]); await DB.set("favs",[...favs,f]); flash("★ Favorit");}} />}
-        {tab === "history" && <AnalyseView historyData={histData} todayEntries={entries} weights={weights} goals={goals} />}
-        {tab === "weight" && <WeightView weights={weights} addWeight={async(v)=>{const u=[...weights.filter(w=>w.date!==todayKey()),{date:todayKey(),val:v}]; setWeights(u); await DB.set("weights",u); flash("Gewicht erfasst");}} removeWeight={async(d)=>{const u=weights.filter(w=>w.date!==d); setWeights(u); await DB.set("weights",u);}} />}
+        {tab === "today" && (
+          <TodayView 
+            entries={entries} 
+            goals={goals} 
+            addEntry={addEntry} 
+            removeEntry={removeEntry} 
+            onStar={async(f)=>{setFavs([...favs,f]); await DB.set("favs",[...favs,f]); flash("★ Favorit");}} 
+          />
+        )}
+        {tab === "history" && <AnalyseView historyData={histData} todayEntries={entries} weights={weights} goals={goals} activeDate={selectedDate} />}
+        {tab === "weight" && <WeightView weights={weights} addWeight={addWeight} removeWeight={async(d)=>{const u=weights.filter(w=>w.date!==d); setWeights(u); await DB.set("weights",u);}} activeDate={selectedDate} />}
         {tab === "favs" && (
           <div className="space-y-3">
             {favs.length ? favs.map((f, i) => (
@@ -386,5 +443,3 @@ export default function App() {
     </div>
   );
 }
-
-
